@@ -50,7 +50,7 @@ body{
   display:flex; align-items:center; gap:10px; padding:8px 12px;
 }
 .topbar{top:10px; min-height:var(--topH)}
-.bottombar{bottom:10px; min-height:var(--botH)}
+.bottombar{bottom:10px; min-height:var(--botH); flex-wrap:nowrap; gap:8px; overflow:hidden; align-items:center}
 .spacer{flex:1}
 
 .topbar h1{font-size:1.05rem;font-weight:800;letter-spacing:.02em;white-space:nowrap}
@@ -100,7 +100,9 @@ body{
 /* ---------- Reiter-Karte ---------- */
 .tabcard{
   position:fixed; left:10px; right:10px; bottom:calc(var(--botH) + 18px); z-index:15;
-  max-height:min(46vh,460px); overflow:auto; padding:14px;
+  /* Öffnet bis knapp unter die Kopfleiste – nichts verschwindet mehr hinter der Fußleiste.
+     --botH wird zur Laufzeit aus der echten Höhe der Fußleiste gesetzt (main.js). */
+  max-height:calc(100dvh - var(--topH) - var(--botH) - 52px); overflow:auto; padding:14px;
   scrollbar-width:thin; scrollbar-color:var(--railsub) transparent;
 }
 body.minimal .tabcard{display:none}
@@ -108,7 +110,7 @@ body.minimal .tabcard{display:none}
 .tabpane.on{display:block}
 
 /* ---------- Untere Reiter ---------- */
-.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tabs{display:flex;gap:6px;flex-wrap:nowrap}
 .tab{
   border:1px solid var(--line); border-radius:var(--r-sm); padding:10px 16px;
   background:rgba(0,80,86,.6); color:var(--card); font:inherit; font-weight:700;
@@ -118,7 +120,7 @@ body.minimal .tabcard{display:none}
 .tab.on{background:var(--brand);color:var(--accent);box-shadow:0 0 0 1px var(--chip) inset,0 0 14px rgba(90,219,214,.25)}
 
 /* ---------- Transport ---------- */
-.transport{display:flex;align-items:center;gap:7px}
+.transport{display:flex;align-items:center;gap:7px;flex-wrap:nowrap;flex-shrink:0}
 .tbtn{
   width:38px;height:38px;border-radius:var(--r-sm);border:1px solid var(--line);
   background:rgba(0,80,86,.75);color:var(--accent);font-size:1rem;cursor:pointer;
@@ -130,7 +132,7 @@ body.minimal .tabcard{display:none}
 .tbtn.rec{color:#ff8d80}
 .tbtn.rec.on{background:#5c1f1a;box-shadow:0 0 0 2px #ff8d80 inset;animation:pulse 1.2s infinite}
 @keyframes pulse{50%{box-shadow:0 0 0 2px rgba(255,141,128,.35) inset}}
-.tspeed{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:.76rem}
+.tspeed{display:flex;align-items:center;gap:7px;font-size:.72rem;color:var(--chip);white-space:nowrap}
 .tspeed b{color:var(--accent);width:34px;text-align:right}
 .tspeed input{width:96px;accent-color:var(--chip)}
 
@@ -310,12 +312,13 @@ label{font-size:.76rem;color:var(--muted);display:flex;flex-direction:column;gap
   :root{--topH:48px;--botH:54px}
   .hide-sm{display:none}
   .bar{left:8px;right:8px;padding:7px 9px;gap:7px}
-  .topbar{top:8px} .bottombar{bottom:8px;flex-wrap:wrap;row-gap:8px}
+  .topbar{top:8px} .bottombar{bottom:8px;flex-wrap:nowrap;gap:6px;padding:6px 8px}
   .topbar h1{font-size:.95rem}
   .tabcard{left:8px;right:8px;bottom:calc(var(--botH) + 16px);max-height:52vh;max-height:52dvh;padding:11px}
-  .tabs{flex:1}
+  .tabs{flex:1 1 auto;min-width:0}
+  .tab{padding:9px 6px;font-size:.72rem;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .tab{flex:1;padding:11px 8px;font-size:.76rem;text-align:center}
-  .transport{width:100%;justify-content:center}
+  .transport{width:auto;justify-content:flex-end;gap:4px}
   .tbtn,.iconbtn{width:44px;height:44px;flex-basis:44px}
   .btn{min-height:44px}
   .jog-row{grid-template-columns:44px 1fr 52px 52px}
@@ -325,4 +328,27 @@ label{font-size:.76rem;color:var(--muted);display:flex;flex-direction:column;gap
 }
 @media (prefers-reduced-motion:reduce){
   *{animation:none!important;transition:none!important}
+}
+
+/* Process Control zeigt nur die Anwendung zur geladenen Szene. */
+.appcard.aus{display:none}
+#appHinweis{display:none;margin:0;opacity:.75}
+#appHinweis.an{display:block}
+
+/* Fußleiste bleibt einzeilig: bei Platzmangel entfällt zuerst der Tempo-Regler,
+   danach dürfen die Reiterbeschriftungen schrumpfen. */
+@media (max-width: 1180px){ .bottombar .tspeed{display:none} }
+@media (max-width: 820px){ .bottombar .tbtn.opt{display:none} }
+.tabs .tab{min-width:0}
+
+/* Reiterbeschriftung: Langform am Rechner, Kurzform auf dem Handy –
+   sonst werden die Reiter zu „P…" abgeschnitten. */
+.tab .kurz{display:none}
+@media (max-width: 620px){
+  .tab .lang{display:none}
+  .tab .kurz{display:inline}
+  .bottombar .tbtn.opt2{display:none}
+  .tab{padding:10px 8px;font-size:.71rem;letter-spacing:0}
+  .bottombar{gap:5px;padding:6px}
+  .transport{gap:4px}
 }

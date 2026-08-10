@@ -64,6 +64,7 @@ async function loadScene(entry) {
   let xml = entry.make ? entry.make() : (globalThis.__HORST_FILES?.[entry.url] ?? await (await fetch(entry.url)).text());
   loadXML(xml, entry.name);
   aktiveSzene = entry.id ?? null;              // für den Programmstart: passende Zelle erkennen
+  zeigeAnwendungen();
 }
 
 function loadXML(xml, sourceName = '') {
@@ -237,6 +238,23 @@ function buildStaticPanels() {
 }
 
 /* ---------- Bedienoberfläche: Reiter, Einstellungen, Minimieren ---------- */
+/** Process Control zeigt nur die Anwendung, die zur geladenen Szene gehört. */
+function zeigeAnwendungen() {
+  const karten = $$('#paneProcess .appcard');
+  const passend = karten.filter(k => k.dataset.szene === aktiveSzene);
+  karten.forEach(k => k.classList.toggle('aus', passend.length > 0 && !passend.includes(k)));
+  $('#appHinweis').classList.toggle('an', passend.length === 0);
+}
+
+/** Die Fußleiste darf beliebig hoch sein – die Karte richtet sich danach,
+ *  damit nichts mehr dahinter verschwindet. */
+function messeLeisten() {
+  const bot = $('#bottombar').getBoundingClientRect().height;
+  const top = $('#topbar').getBoundingClientRect().height;
+  document.documentElement.style.setProperty('--botH', Math.round(bot) + 'px');
+  document.documentElement.style.setProperty('--topH', Math.round(top) + 'px');
+}
+
 function setMinimal(on) {
   document.body.classList.toggle('minimal', on);
   const b = $('#minAllBtn');
@@ -255,6 +273,10 @@ function initShell() {
     $$('.tabpane').forEach(p => p.classList.toggle('on', p.id === t.dataset.pane));
   });
   $('#minAllBtn').onclick = () => setMinimal(!document.body.classList.contains('minimal'));
+  messeLeisten();
+  new ResizeObserver(messeLeisten).observe($('#bottombar'));
+  new ResizeObserver(messeLeisten).observe($('#topbar'));
+  addEventListener('resize', messeLeisten);
 
   const menu = $('#setMenu'), setBtn = $('#setBtn');
   setBtn.onclick = ev => {
