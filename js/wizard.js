@@ -17,11 +17,12 @@ const DEFAULTS = () => ({
 });
 
 export function generateCellXML(cfg) {
+  const phys = cfg.physics || {};
   const h = sceneHeader({
-    timestep: cfg.physics.timestep,
-    integrator: cfg.physics.integrator,
-    gravity: `0 0 ${cfg.physics.gravity}`,
-    floorSize: Math.max(3, cfg.robots * cfg.spacing + 2),
+    timestep: phys.timestep ?? 0.002,
+    integrator: phys.integrator ?? 'implicitfast',
+    gravity: `0 0 ${phys.gravity ?? -9.81}`,
+    floorSize: Math.max(3, (cfg.robots ?? 1) * (cfg.spacing ?? 1.4) + 2),
   });
 
   let world = '', actuators = '', sensors = '';

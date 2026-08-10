@@ -78,3 +78,16 @@ models/               horst600_g2.xml, humanoid.xml
 - Höhenfelder (hfield) und Flex-Körper werden noch nicht gezeichnet.
 - Multithread-Build (`@mujoco/mujoco/mt`) benötigt COOP/COEP-Header; die
   Single-Thread-Variante läuft überall ohne Sonderkonfiguration.
+
+
+## CAD-Meshes
+
+Die Optik nutzt die echten HORST600-G2-Geometrien: `tools/build_meshes.mjs`
+bereitet die fruitcore-GLB-Exporte auf (Struktur-Meshes liegen dort bereits
+im Roboter-Basisframe in mm/Nullpose; Deko wird relativ zur posierten
+Träger-Baugruppe zurückgerechnet), fasst pro Link nach Material zusammen
+und simplifiziert per meshoptimizer (23 MB → 5,4 MB). Zur Laufzeit legt
+`js/robotmesh.js` die 7 Link-Meshes über die MuJoCo-Körper
+(`M = [R|p]·T(−t0)`); die Kollisions-Primitive laufen unverändert weiter
+und werden nur ausgeblendet (Checkbox „CAD-Meshes"). `horst800_visual.glb`
+liegt vorbereitet bei, wird aber erst mit einer HORST800-Kinematik nutzbar.

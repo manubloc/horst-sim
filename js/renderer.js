@@ -5,7 +5,8 @@
  * mit three.js. Geometrien werden gepoolt und gecacht.
  * ============================================================ */
 
-import * as THREE from '../vendor/three/three.module.min.js';
+import * as THREE from 'three';
+import { RobotMeshManager } from './robotmesh.js';
 
 const T = {
   PLANE: 0, HFIELD: 1, SPHERE: 2, CAPSULE: 3, ELLIPSOID: 4,
@@ -46,6 +47,8 @@ export class SceneRenderer {
     this.meshCache = new Map();  // dataid -> BufferGeometry (Modell-Meshes)
     this.pool = [];              // wiederverwendete THREE.Mesh
     this.wireframe = false;
+
+    this.robotMesh = new RobotMeshManager(this.scene);
 
     this.checker = this._makeChecker();
     this._m4 = new THREE.Matrix4();
@@ -209,14 +212,23 @@ export class SceneRenderer {
       const scn = engine.scene;
       const geoms = scn.geoms;
       const n = scn.ngeom;
+      const hideRobot = this.robotMesh.available && this.robotMesh.active;
+      const OBJ_GEOM = mj.mjtObj.mjOBJ_GEOM.value;
+      const robotGeoms = this.robotMesh.geomIds;
       try {
         for (let i = 0; i < n; i++) {
           const g = geoms.get(i);
-          this._applyGeom(engine, this._poolMesh(i), g);
+          const mesh = this._poolMesh(i);
+          if (hideRobot && g.objtype === OBJ_GEOM && robotGeoms.has(g.objid)) {
+            mesh.visible = false;
+          } else {
+            this._applyGeom(engine, mesh, g);
+          }
           g.delete();
         }
       } finally { geoms.delete(); }
       for (let i = n; i < this.pool.length; i++) this.pool[i].visible = false;
+      this.robotMesh.sync(engine);
     }
     this.syncCamera(engine);
     this.renderer.render(this.scene, this.camera);

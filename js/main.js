@@ -63,6 +63,7 @@ function loadXML(xml, sourceName = '') {
 
 function onModelLoaded() {
   renderer.onModelChanged();
+  renderer.robotMesh.rebuild(engine);   // async, Primitive bleiben Fallback
   selectedBody = -1; tracking = false;
   $('#trackBtn').classList.remove('on');
   $('#selname').textContent = '–';
@@ -154,6 +155,7 @@ function buildStaticPanels() {
   // Visualisierung
   $$('#panelVis [data-vis]').forEach(inp => inp.onchange = applyVisInputs);
   $('#visFrame').onchange = applyVisInputs;
+  $('#visCad').onchange = ev => renderer.robotMesh.setActive(ev.target.checked);
   $('#visShadow').onchange = ev => renderer.setShadows(ev.target.checked);
   $('#visWire').onchange = ev => renderer.setWireframe(ev.target.checked);
 
