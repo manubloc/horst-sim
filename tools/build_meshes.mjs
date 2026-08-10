@@ -24,6 +24,9 @@ const bgLink = (name) => {
   const n = name || '';
   if (n.includes('Werkzeugflansch')) return 6;
   for (let i = 5; i >= 1; i--) if (n.includes('BG0' + i)) return i;
+  // Kundenvorgabe: P011145-Logos/Leuchtringe gehören zu BG01 (drehen mit Achse 1),
+  // obwohl sie im Export außerhalb der BG-Hierarchie hängen.
+  if (n.includes('P011145')) return 1;
   return null;
 };
 
