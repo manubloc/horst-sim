@@ -1,263 +1,318 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>horstOS · Simulation</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/app.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23015d65'/><circle cx='16' cy='16' r='7' fill='none' stroke='%235adbd6' stroke-width='3'/></svg>">
 <script>
-/* Boot-Diagnose: zeigt Ladefortschritt und JEDEN Fehler direkt im Lade-Overlay an. */
-(function () {
-  function line(msg, isErr) {
-    try {
-      var el = document.getElementById('bootlog');
-      if (!el) return;
-      var d = document.createElement('div');
-      d.textContent = msg;
-      if (isErr) d.style.color = '#ff7d7d';
-      el.appendChild(d);
-      while (el.childElementCount > 6) el.removeChild(el.firstChild);
-    } catch (e) {}
-  }
-  window.__bootlog = line;
-  window.addEventListener('error', function (e) {
-    if (e.target && (e.target.src || e.target.href) && e.target !== window) {
-      line('Laden fehlgeschlagen: ' + (e.target.src || e.target.href).split('/').slice(-2).join('/'), true);
-    } else {
-      line('Fehler: ' + (e.message || e.type) + (e.filename ? ' @ ' + e.filename.split('/').pop() + ':' + e.lineno : ''), true);
-    }
-  }, true);
-  window.addEventListener('unhandledrejection', function (e) {
-    var r = e.reason;
-    line('Fehler (async): ' + (r && (r.message || r.toString()) || r), true);
-  });
-})();
+  /* Früher Boot-Log: schreibt Meilensteine und Fehler ins Lade-Overlay. */
+  (function () {
+    const lines = [];
+    window.__bootlog = function (msg, err) {
+      lines.push((err ? '✖ ' : '· ') + msg);
+      const el = document.getElementById('bootlog');
+      if (el) el.innerHTML = lines.slice(-14).map(l => l.replace(/</g, '&lt;')).join('<br>');
+    };
+    addEventListener('error', e => {
+      const t = e.target;
+      if (t && t !== window && (t.src || t.href)) __bootlog('Ressource fehlt: ' + (t.src || t.href), true);
+      else __bootlog('Fehler: ' + (e.message || e), true);
+    }, true);
+    addEventListener('unhandledrejection', e => __bootlog('Abbruch: ' + (e.reason?.message || e.reason), true));
+    __bootlog('Seite geladen');
+  })();
 </script>
 </head>
 <body>
 
-<!-- Linke Spalte: 3D-Datenübersicht -->
-<aside class="sidenav">
-  <div class="panel treewrap">
-    <h3>3D-Übersicht</h3>
-    <div class="pbody"><div id="scenetree" class="tree"></div></div>
-  </div>
-</aside>
+<!-- ============ 3D-Welt: vollflächig ganz hinten ============ -->
+<section id="viewport" class="viewport" aria-label="3D-Simulationsansicht"></section>
 
-<!-- Kopfzeile -->
-<header class="topbar">
+<!-- ============ Obere Menüleiste ============ -->
+<header class="bar topbar" id="topbar">
   <h1>horst<span>OS</span></h1>
-  <p class="crumb">Simulation · MuJoCo-Physik in Echtzeit</p>
-  <div class="chips">
-    <span class="chip" id="modelstats">–</span>
-    <span class="chip" id="mjversion">MuJoCo …</span>
-  </div>
+  <span class="chip hide-sm" id="modelstats">–</span>
+  <span class="chip hide-sm" id="mjversion">MuJoCo …</span>
+  <span class="spacer"></span>
+  <span class="chip sel" title="Aktuelle Auswahl">Auswahl: <b id="selname">–</b></span>
+  <span class="chip"><b id="stFps">– fps</b></span>
+  <button class="iconbtn" id="infoBtn" aria-label="Bedienung"
+    data-tip="Kamera drehen: linke Maustaste ziehen&#10;Kamera verschieben: rechte Maustaste ziehen&#10;Zoom: Mausrad · mobil: zwei Finger&#10;Objekt wählen: anklicken&#10;Objekt ziehen: direkt ziehen (rechts = drehen)&#10;Pause / Schritt / Reset: Leertaste · S · R&#10;Kopieren / Einfügen / Löschen: Strg+C · Strg+V · Entf">i</button>
+  <button class="iconbtn" id="setBtn" aria-label="Einstellungen" data-tip="Globale Einstellungen">⚙</button>
+  <button class="iconbtn" id="minAllBtn" aria-label="Alles minimieren" data-tip="Alles ausblenden bis auf die Menüleisten">⤢</button>
 </header>
 
-<!-- Hauptbereich -->
-<main class="stage">
-  <section id="viewport" class="viewport" aria-label="3D-Simulationsansicht">
-    <div class="hud tl"><span>Auswahl:</span><b id="selname">–</b></div>
-    <div class="hud tr"><b id="stFps">– fps</b></div>
-    <div class="corner c1"></div><div class="corner c2"></div><div class="corner c3"></div><div class="corner c4"></div>
+<!-- ============ Einstellungs-Flyout ============ -->
+<div class="flyout" id="setMenu" role="dialog" aria-label="Globale Einstellungen">
+  <h4>Szene</h4>
+  <select id="sceneSelect" class="input"></select>
+  <div class="btnrow">
+    <button id="wizardBtn" class="btn primary sm">Einrichtungs-Assistent</button>
+    <button id="fileBtn" class="btn ghost sm">Datei laden…</button>
+    <input id="fileInput" type="file" accept=".xml,.mjcf,.urdf" hidden>
+  </div>
+  <p class="hint">MJCF- oder URDF-Datei laden oder direkt ins 3D-Fenster ziehen.</p>
+  <h4>Zustand</h4>
+  <div class="btnrow">
+    <button id="snapSave" class="btn ghost sm">Zustand merken</button>
+    <button id="snapLoad" class="btn ghost sm">Zustand laden</button>
+  </div>
+  <h4>Darstellung</h4>
+  <div class="checks">
+    <label><input type="checkbox" id="visCad" checked>CAD-Meshes</label>
+    <label><input type="checkbox" id="visShadow" checked>Schatten</label>
+    <label><input type="checkbox" id="visWire">Drahtgitter</label>
+  </div>
+  <label>Koordinatenrahmen
+    <select id="visFrame" class="input">
+      <option value="0">keine</option><option value="1">Körper</option>
+      <option value="2">Geome</option><option value="3">Sites</option>
+      <option value="6">Welt</option>
+    </select></label>
+</div>
 
-    <!-- Transportleiste -->
-    <div class="transport">
-        <button id="transToggle" class="tbtn" title="Leiste minimieren">⌄</button>
-      <button id="playBtn" class="tbtn big" title="Pause (Leertaste)">&#10074;&#10074;</button>
-      <button id="stepBtn" class="tbtn" title="Einzelschritt (S)">&#8618;</button>
-      <button id="resetBtn" class="tbtn" title="Zurücksetzen (R)">&#8635;</button>
-      <div class="tsep"></div>
-      <label class="tspeed">Tempo
-        <input id="speed" type="range" min="0.1" max="4" step="0.1" value="1">
-        <b id="speedVal">1.0×</b>
-      </label>
-      <div class="tsep"></div>
-      <button id="camBtn" class="tbtn" title="Kamera zurücksetzen">&#8982;</button>
-      <button id="trackBtn" class="tbtn" title="Kamera folgt Auswahl">&#9673;</button>
-      <button id="shotBtn" class="tbtn" title="Screenshot (PNG)">&#9635;</button>
-      <button id="recBtn" class="tbtn rec" title="Video aufnehmen">&#9679;</button>
-    </div>
-  </section>
+<!-- ============ Overlay-Karte des aktiven Reiters ============ -->
+<div class="tabcard" id="tabcard">
 
-  <!-- Rechtes Panel-Dock -->
-  <aside class="dock">
+  <!-- ---------- Reiter 1: Process Control ---------- -->
+  <div class="tabpane on" id="paneProcess">
+    <div class="appgrid">
 
-    <div class="panel" id="panelPick">
-      <h3>Pick &amp; Place</h3>
-      <div class="pbody">
-        <label class="rowlab">Tempo <span id="pickSpeedVal">×1.0</span></label>
-        <input id="pickSpeed" type="range" min="0.5" max="3" step="0.1" value="1">
+      <article class="appcard">
+        <header><h4>Pick &amp; Place</h4>
+          <button class="info" data-tip="Der Roboter holt die farbigen Kisten einzeln vom Tisch und legt sie auf das gleichfarbige Ablagefeld.">i</button>
+        </header>
+        <p class="appdesc">Farbige Kisten auf das passende Ablagefeld legen.</p>
         <div class="btnrow">
           <button id="pickRotBtn" class="btn pick red" disabled>Rote greifen</button>
           <button id="pickBlauBtn" class="btn pick blue" disabled>Blaue greifen</button>
-          <button id="pickKugelBtn" class="btn pick teal" disabled>Kugeln greifen</button>
-          <button id="pickAlleBtn" class="btn pick all" disabled>Alles sortieren</button>
-          <button id="pickStopBtn" class="btn ghost">Stopp</button>
         </div>
-        <div class="kv"><span>Status</span><b id="pickStatus">bereit</b></div>
-      </div>
-    </div>
+      </article>
 
-    <div class="panel" id="panelSzene">
-      <h3>Szene</h3>
-      <div class="pbody">
-        <select id="sceneSelect" class="input"></select>
+      <article class="appcard">
+        <header><h4>Part Separation</h4>
+          <button class="info" data-tip="Sortiert alle losen Teile nach Sorte: rote und blaue Kisten auf ihre Felder, Kugeln in die Wanne, alles Übrige auf das Restfeld.">i</button>
+        </header>
+        <p class="appdesc">Alle Teile nach Sorte trennen und ablegen.</p>
         <div class="btnrow">
-          <button id="wizardBtn" class="btn primary">Einrichtungs-Assistent</button>
-          <button id="fileBtn" class="btn ghost">Datei laden…</button>
-          <input id="fileInput" type="file" accept=".xml,.mjcf,.urdf" hidden>
+          <button id="pickAlleBtn" class="btn pick all" disabled>Sortieren starten</button>
+          <button id="pickKugelBtn" class="btn pick teal" disabled>Nur Kugeln</button>
         </div>
-        <p class="hint">MJCF- oder URDF-Datei laden oder direkt ins 3D-Fenster ziehen. URDF ohne Mesh-Verweise wird direkt kompiliert.</p>
+      </article>
+
+      <article class="appcard">
+        <header><h4>Scanmutti</h4>
+          <button class="info" data-tip="Pakete rutschen über die Rampe vor den Roboter. Er prüft die Lage des Etiketts, wendet das Paket bei Bedarf und legt es aufs Förderband.">i</button>
+        </header>
+        <p class="appdesc">Pakete von der Rampe scannen, wenden und aufs Förderband legen.</p>
         <div class="btnrow">
-          <button id="snapSave" class="btn ghost sm">Zustand merken</button>
-          <button id="snapLoad" class="btn ghost sm">Zustand laden</button>
+          <button id="scanStartBtn" class="btn pick amber">Pakete scannen</button>
+          <button id="scanSceneBtn" class="btn ghost sm">Zelle laden</button>
         </div>
-      </div>
+      </article>
+
     </div>
 
-    <div class="panel" id="panelAuswahl">
-      <h3>Auswahl</h3>
-      <div class="pbody">
-        <div class="kv"><span>Objekt</span><b id="selInfoName">–</b></div>
-        <div class="kv"><span>Typ</span><b id="selInfoType">–</b></div>
-        <div class="kv"><span>Position</span><b id="selInfoPos">–</b></div>
+    <div class="runbar">
+      <button id="pickStopBtn" class="btn ghost">Programm stoppen</button>
+      <label class="rowlab wide">Programmtempo
+        <input id="pickSpeed" type="range" min="0.5" max="3" step="0.1" value="1">
+        <b id="pickSpeedVal">×1.0</b>
+      </label>
+      <div class="kv grow"><span>Status</span><b id="pickStatus">bereit</b></div>
+    </div>
+  </div>
+
+  <!-- ---------- Reiter 2: Manual Control ---------- -->
+  <div class="tabpane" id="paneManual">
+    <div class="mangrid">
+
+      <section class="mansec">
+        <header><h4>Achsen</h4>
+          <button class="info" data-tip="Taste gedrückt halten = Achse fährt. Kurzer Klick = kleiner Schritt. Die Grenzen der Achse werden eingehalten.">i</button>
+        </header>
+        <div id="jogJoints" class="joglist"></div>
+      </section>
+
+      <section class="mansec">
+        <header><h4>Kartesisch</h4>
+          <button class="info" data-tip="Welt: Richtungen der Zelle (X nach vorn, Y nach links, Z nach oben).&#10;Werkzeug: Z läuft entlang der Werkzeugachse, also in Anfahrrichtung des Greifers.">i</button>
+        </header>
+        <div class="segrow" id="frameSeg">
+          <button class="seg on" data-frame="welt">Welt</button>
+          <button class="seg" data-frame="tool">Werkzeug</button>
+        </div>
+        <div id="jogCart" class="joglist"></div>
+        <div class="kv"><span>TCP (mm)</span><b id="jogTcp">–</b></div>
+      </section>
+
+      <section class="mansec">
+        <header><h4>Tempo &amp; Referenz</h4>
+          <button class="info" data-tip="Das Tempo gilt für beide Betriebsarten. Home fährt die Grundstellung des HORST600 an.">i</button>
+        </header>
+        <div class="segrow" id="jogSpeedSeg">
+          <button class="seg" data-jogspeed="0.35">fein</button>
+          <button class="seg on" data-jogspeed="1">mittel</button>
+          <button class="seg" data-jogspeed="2.4">schnell</button>
+        </div>
         <div class="btnrow">
-          <button id="dupBtn" class="btn ghost sm" disabled>Duplizieren</button>
-          <button id="delBtn" class="btn ghost sm" disabled>Löschen</button>
-          <button id="focusBtn" class="btn ghost sm" disabled>Fokus</button>
+          <button id="jogHome" class="btn primary sm">Home-Pose</button>
+          <button id="jogHold" class="btn ghost sm">Halt</button>
         </div>
-        <p class="hint">Objekt im 3D anklicken &amp; ziehen zum Verschieben (rechte Taste: drehen). Strg+C/V kopiert &amp; fügt ein, Entf löscht.</p>
+        <p class="hint">Manuelles Verfahren stoppt ein laufendes Programm.</p>
+      </section>
+
+    </div>
+  </div>
+
+  <!-- ---------- Reiter 3: Mehr ---------- -->
+  <div class="tabpane" id="paneMore">
+    <div class="moregrid">
+
+      <div class="panel" id="panelBaum">
+        <h3>3D-Übersicht</h3>
+        <div class="pbody"><div id="scenetree" class="tree"></div></div>
       </div>
-    </div>
 
-    <div class="panel" id="panelAkt">
-      <h3>Achsen &amp; Aktoren</h3>
-      <div class="pbody" id="actList"></div>
-    </div>
-
-    <div class="panel" id="panelSpawn">
-      <h3>Teile-Spawner</h3>
-      <div class="pbody">
-        <div class="spawngrid">
-          <label for="spawnRot">Rote Kisten</label><input id="spawnRot" class="input" type="number" min="0" max="15" value="3">
-          <label for="spawnBlau">Blaue Kisten</label><input id="spawnBlau" class="input" type="number" min="0" max="15" value="3">
-          <label for="spawnKugel">Kugeln</label><input id="spawnKugel" class="input" type="number" min="0" max="15" value="4">
-          <label for="spawnWuerfel">Würfel</label><input id="spawnWuerfel" class="input" type="number" min="0" max="15" value="2">
-        </div>
-        <button id="spawnBtn" class="btn primary">Teile abwerfen</button>
-        <button id="clearBtn" class="btn ghost">Alle losen Teile entfernen</button>
-      </div>
-    </div>
-
-    <div class="panel" id="panelPhysik">
-      <h3>Physik</h3>
-      <div class="pbody">
-        <div class="grid3">
-          <label>g<sub>x</sub><input id="pGx" class="input" data-phys type="number" step="0.1"></label>
-          <label>g<sub>y</sub><input id="pGy" class="input" data-phys type="number" step="0.1"></label>
-          <label>g<sub>z</sub><input id="pGz" class="input" data-phys type="number" step="0.1"></label>
-        </div>
-        <div class="grid2">
-          <label>Zeitschritt (s)<input id="pTs" class="input" data-phys type="number" step="0.0005" min="0.0001"></label>
-          <label>Solver-Iterationen<input id="pIter" class="input" data-phys type="number" step="1" min="1"></label>
-        </div>
-        <div class="grid2">
-          <label>Integrator
-            <select id="pInt" class="input" data-phys>
-              <option value="0">Euler</option><option value="1">RK4</option>
-              <option value="2">implicit</option><option value="3">implicitfast</option>
-            </select></label>
-          <label>Reibkegel
-            <select id="pCone" class="input" data-phys>
-              <option value="0">pyramidal</option><option value="1">elliptisch</option>
-            </select></label>
-        </div>
-        <div class="checks">
-          <label><input type="checkbox" id="pdContact" data-dsbl>Kontakte aus</label>
-          <label><input type="checkbox" id="pdGrav" data-dsbl>Gravitation aus</label>
-          <label><input type="checkbox" id="pdLimit" data-dsbl>Gelenkgrenzen aus</label>
-          <label><input type="checkbox" id="pdAct" data-dsbl>Aktuatorik aus</label>
-          <label><input type="checkbox" id="pdFric" data-dsbl>Reibungsverlust aus</label>
-        </div>
-      </div>
-    </div>
-
-    <div class="panel" id="panelVis">
-      <h3>Visualisierung</h3>
-      <div class="pbody">
-        <div class="checks">
-          <label><input type="checkbox" id="vCPoint" data-vis>Kontaktpunkte</label>
-          <label><input type="checkbox" id="vCForce" data-vis>Kontaktkräfte</label>
-          <label><input type="checkbox" id="vJoint" data-vis>Gelenkachsen</label>
-          <label><input type="checkbox" id="vActuator" data-vis>Aktoren</label>
-          <label><input type="checkbox" id="vInertia" data-vis>Trägheitsboxen</label>
-          <label><input type="checkbox" id="vCom" data-vis>Schwerpunkte</label>
-          <label><input type="checkbox" id="vPert" data-vis checked>Perturbationskraft</label>
-          <label><input type="checkbox" id="vTransp" data-vis>Transparent</label>
-          <label><input type="checkbox" id="vHull" data-vis>Konvexe Hüllen</label>
-        </div>
-        <div class="grid2">
-          <label>Koordinatenrahmen
-            <select id="visFrame" class="input">
-              <option value="0">keine</option><option value="1">Körper</option>
-              <option value="2">Geome</option><option value="3">Sites</option>
-              <option value="6">Welt</option>
-            </select></label>
-          <div class="checks">
-            <label><input type="checkbox" id="visCad" checked>CAD-Meshes</label>
-            <label><input type="checkbox" id="visShadow" checked>Schatten</label>
-            <label><input type="checkbox" id="visWire">Drahtgitter</label>
+      <div class="panel" id="panelAuswahl">
+        <h3>Auswahl</h3>
+        <div class="pbody">
+          <div class="kv"><span>Objekt</span><b id="selInfoName">–</b></div>
+          <div class="kv"><span>Typ</span><b id="selInfoType">–</b></div>
+          <div class="kv"><span>Position</span><b id="selInfoPos">–</b></div>
+          <div class="btnrow">
+            <button id="dupBtn" class="btn ghost sm" disabled>Duplizieren</button>
+            <button id="delBtn" class="btn ghost sm" disabled>Löschen</button>
+            <button id="focusBtn" class="btn ghost sm" disabled>Fokus</button>
           </div>
         </div>
       </div>
-    </div>
 
-    <div class="panel" id="panelStatus">
-      <h3>Status &amp; Sensorik</h3>
-      <div class="pbody">
-        <div class="kv"><span>Simulationszeit</span><b id="stTime">–</b></div>
-        <div class="kv"><span>Physik-Schritte</span><b id="stSteps">–</b></div>
-        <div class="kv"><span>Kontakte</span><b id="stCon">–</b></div>
-        <div class="kv"><span>Energie (pot | kin)</span><b id="stEnergy">–</b></div>
-        <h4>Sensoren</h4>
-        <div id="sensorList" class="scrollbox"></div>
-        <h4>Aktive Kontakte</h4>
-        <div id="contactList" class="scrollbox"></div>
+      <div class="panel" id="panelAkt">
+        <h3>Achsen &amp; Aktoren</h3>
+        <div class="pbody" id="actList"></div>
       </div>
-    </div>
 
-    <div class="panel" id="panelXml">
-      <h3>MJCF / XML</h3>
-      <div class="pbody">
-        <textarea id="xmleditor" spellcheck="false" aria-label="MJCF-Quelltext"></textarea>
-        <div id="xmlerror" class="xmlerror" role="alert"></div>
-        <div class="btnrow">
-          <button id="xmlApply" class="btn primary sm" title="Strg+Enter">Übernehmen &amp; laden</button>
-          <button id="xmlRevert" class="btn ghost sm">Verwerfen</button>
-          <button id="xmlDownload" class="btn ghost sm">Download</button>
+      <div class="panel" id="panelSpawn">
+        <h3>Teile-Spawner</h3>
+        <div class="pbody">
+          <div class="spawngrid">
+            <label for="spawnRot">Rote Kisten</label><input id="spawnRot" class="input" type="number" min="0" max="15" value="3">
+            <label for="spawnBlau">Blaue Kisten</label><input id="spawnBlau" class="input" type="number" min="0" max="15" value="3">
+            <label for="spawnKugel">Kugeln</label><input id="spawnKugel" class="input" type="number" min="0" max="15" value="4">
+            <label for="spawnWuerfel">Würfel</label><input id="spawnWuerfel" class="input" type="number" min="0" max="15" value="2">
+          </div>
+          <button id="spawnBtn" class="btn primary">Teile abwerfen</button>
+          <button id="clearBtn" class="btn ghost">Alle losen Teile entfernen</button>
         </div>
       </div>
-    </div>
 
-    <div class="panel closed" id="panelHilfe">
-      <h3>Bedienung</h3>
-      <div class="pbody">
-        <div class="kv"><span>Kamera drehen</span><b>Linke Maustaste ziehen</b></div>
-        <div class="kv"><span>Kamera verschieben</span><b>Rechte Maustaste ziehen</b></div>
-        <div class="kv"><span>Zoom</span><b>Mausrad</b></div>
-        <div class="kv"><span>Körper auswählen</span><b>Doppelklick</b></div>
-        <div class="kv"><span>Körper ziehen</span><b>Strg + ziehen</b></div>
-        <div class="kv"><span>Körper rotieren</span><b>Strg + rechts ziehen</b></div>
-        <div class="kv"><span>Pause / Schritt / Reset</span><b>Leertaste / S / R</b></div>
+      <div class="panel closed" id="panelPhysik">
+        <h3>Physik</h3>
+        <div class="pbody">
+          <div class="grid3">
+            <label>g<sub>x</sub><input id="pGx" class="input" data-phys type="number" step="0.1"></label>
+            <label>g<sub>y</sub><input id="pGy" class="input" data-phys type="number" step="0.1"></label>
+            <label>g<sub>z</sub><input id="pGz" class="input" data-phys type="number" step="0.1"></label>
+          </div>
+          <div class="grid2">
+            <label>Zeitschritt (s)<input id="pTs" class="input" data-phys type="number" step="0.0005" min="0.0001"></label>
+            <label>Solver-Iterationen<input id="pIter" class="input" data-phys type="number" step="1" min="1"></label>
+          </div>
+          <div class="grid2">
+            <label>Integrator
+              <select id="pInt" class="input" data-phys>
+                <option value="0">Euler</option><option value="1">RK4</option>
+                <option value="2">implicit</option><option value="3">implicitfast</option>
+              </select></label>
+            <label>Reibkegel
+              <select id="pCone" class="input" data-phys>
+                <option value="0">pyramidal</option><option value="1">elliptisch</option>
+              </select></label>
+          </div>
+          <div class="checks">
+            <label><input type="checkbox" id="pdContact" data-dsbl>Kontakte aus</label>
+            <label><input type="checkbox" id="pdGrav" data-dsbl>Gravitation aus</label>
+            <label><input type="checkbox" id="pdLimit" data-dsbl>Gelenkgrenzen aus</label>
+            <label><input type="checkbox" id="pdAct" data-dsbl>Aktuatorik aus</label>
+            <label><input type="checkbox" id="pdFric" data-dsbl>Reibungsverlust aus</label>
+          </div>
+        </div>
       </div>
-    </div>
 
-  </aside>
-</main>
+      <div class="panel closed" id="panelVis">
+        <h3>Visualisierung</h3>
+        <div class="pbody">
+          <div class="checks">
+            <label><input type="checkbox" id="vCPoint" data-vis>Kontaktpunkte</label>
+            <label><input type="checkbox" id="vCForce" data-vis>Kontaktkräfte</label>
+            <label><input type="checkbox" id="vJoint" data-vis>Gelenkachsen</label>
+            <label><input type="checkbox" id="vActuator" data-vis>Aktoren</label>
+            <label><input type="checkbox" id="vInertia" data-vis>Trägheitsboxen</label>
+            <label><input type="checkbox" id="vCom" data-vis>Schwerpunkte</label>
+            <label><input type="checkbox" id="vPert" data-vis checked>Perturbationskraft</label>
+            <label><input type="checkbox" id="vTransp" data-vis>Transparent</label>
+            <label><input type="checkbox" id="vHull" data-vis>Konvexe Hüllen</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel closed" id="panelStatus">
+        <h3>Status &amp; Sensorik</h3>
+        <div class="pbody">
+          <div class="kv"><span>Simulationszeit</span><b id="stTime">–</b></div>
+          <div class="kv"><span>Physik-Schritte</span><b id="stSteps">–</b></div>
+          <div class="kv"><span>Kontakte</span><b id="stCon">–</b></div>
+          <div class="kv"><span>Energie (pot | kin)</span><b id="stEnergy">–</b></div>
+          <h4>Sensoren</h4>
+          <div id="sensorList" class="scrollbox"></div>
+          <h4>Aktive Kontakte</h4>
+          <div id="contactList" class="scrollbox"></div>
+        </div>
+      </div>
+
+      <div class="panel closed" id="panelXml">
+        <h3>MJCF / XML</h3>
+        <div class="pbody">
+          <textarea id="xmleditor" spellcheck="false" aria-label="MJCF-Quelltext"></textarea>
+          <div id="xmlerror" class="xmlerror" role="alert"></div>
+          <div class="btnrow">
+            <button id="xmlApply" class="btn primary sm" title="Strg+Enter">Übernehmen &amp; laden</button>
+            <button id="xmlRevert" class="btn ghost sm">Verwerfen</button>
+            <button id="xmlDownload" class="btn ghost sm">Download</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============ Untere Menüleiste ============ -->
+<footer class="bar bottombar" id="bottombar">
+  <nav class="tabs" id="tabs">
+    <button class="tab on" data-pane="paneProcess">Process Control</button>
+    <button class="tab" data-pane="paneManual">Manual Control</button>
+    <button class="tab" data-pane="paneMore">Mehr</button>
+  </nav>
+  <span class="spacer"></span>
+  <div class="transport">
+    <button id="playBtn" class="tbtn big tip-up" data-tip="Pause / Fortsetzen (Leertaste)">&#10074;&#10074;</button>
+    <button id="stepBtn" class="tbtn tip-up" data-tip="Einzelschritt (S)">&#8618;</button>
+    <button id="resetBtn" class="tbtn tip-up" data-tip="Szene zurücksetzen (R)">&#8635;</button>
+    <label class="tspeed hide-sm">Tempo
+      <input id="speed" type="range" min="0.1" max="4" step="0.1" value="1">
+      <b id="speedVal">1.0×</b>
+    </label>
+    <button id="camBtn" class="tbtn tip-up" data-tip="Kamera zurücksetzen">&#8982;</button>
+    <button id="trackBtn" class="tbtn tip-up" data-tip="Kamera folgt der Auswahl">&#9673;</button>
+    <button id="shotBtn" class="tbtn tip-up hide-sm" data-tip="Screenshot als PNG">&#9635;</button>
+    <button id="recBtn" class="tbtn rec tip-up hide-sm" data-tip="Video aufnehmen">&#9679;</button>
+  </div>
+</footer>
 
 <!-- Assistent-Overlay -->
 <div id="wizard" class="wizard" role="dialog" aria-label="Einrichtungs-Assistent"></div>
@@ -268,7 +323,7 @@
     <div class="spin"></div>
     <h2>horstOS startet</h2>
     <p>MuJoCo-Physik-Engine (WebAssembly) wird geladen …</p>
-    <div id="bootlog" class="bootlog" style="margin-top:10px;font:500 12px/1.6 ui-monospace,monospace;color:#9fd8d5;max-width:420px;text-align:left"></div>
+    <div id="bootlog" class="bootlog"></div>
   </div>
 </div>
 

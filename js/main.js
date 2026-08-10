@@ -40,7 +40,7 @@ let fps = 0, frames = 0, fpsT0 = performance.now();
   }
   renderer = new SceneRenderer($('#viewport'));
   pick = new PickController(engine);
-  globalThis.horst = { engine, pick };              // Debug-Zugriff (Konsole/Tests)
+  globalThis.horst = { engine, pick, JOG, dbg: { jogTicks: 0, jogApplies: 0 } };   // Debug-Zugriff (Konsole/Tests)
   addEventListener('error', ev => toast('Fehler: ' + (ev.message || 'siehe Konsole'), true));
   addEventListener('unhandledrejection', () => toast('Fehler: unbehandelte Promise-Ablehnung', true));
   engine.onReload = onModelLoaded;
@@ -90,7 +90,9 @@ function onModelLoaded() {
   buildSceneTree();
   selectBody(-1);
   pick.configure();
-  for (const id of ['pickRotBtn', 'pickBlauBtn', 'pickKugelBtn', 'pickAlleBtn']) $('#' + id).disabled = !pick.ok;
+  for (const id of ['pickRotBtn', 'pickBlauBtn', 'pickKugelBtn', 'pickAlleBtn', 'scanStartBtn'])
+    $('#' + id).disabled = !pick.ok;
+  buildJog();
   syncPhysicsInputs();
   syncVisInputs();
   const m = engine.model;
@@ -104,6 +106,7 @@ function loop(t) {
   const dt = (t - lastT) / 1000; lastT = t;
   engine.update(dt);
   pick?.tick(dt);
+  jogTick(dt);
   if (tracking && selectedBody > 0) engine.cam.trackbodyid = selectedBody;
   renderer.render(engine);
 
@@ -189,14 +192,10 @@ function buildStaticPanels() {
   };
   $('#spawnBtn').onclick = () => spawnParts();
   $('#clearBtn').onclick = () => clearLooseParts();
-  $('#transToggle').onclick = () => {
-    const t = document.querySelector('.transport');
-    const min = t.classList.toggle('min');
-    const b = $('#transToggle');
-    b.textContent = min ? '⌃' : '⌄';
-    b.title = min ? 'Leiste ausklappen' : 'Leiste minimieren';
-  };
-  if (matchMedia('(max-width: 940px)').matches) $('#transToggle').onclick();
+  $('#scanStartBtn').onclick = () => startScanmutti();
+  $('#scanSceneBtn').onclick = () => ladeScanmuttiZelle();
+  initShell();
+  initJog();
   $('#dupBtn').onclick = () => duplicateSelected();
   $('#delBtn').onclick = () => deleteSelected();
   $('#focusBtn').onclick = () => {
@@ -233,6 +232,176 @@ function buildStaticPanels() {
 
   // Panel-Auf/Zuklappen
   $$('.panel > h3').forEach(h => h.onclick = () => h.parentElement.classList.toggle('closed'));
+}
+
+/* ---------- Bedienoberfläche: Reiter, Einstellungen, Minimieren ---------- */
+function setMinimal(on) {
+  document.body.classList.toggle('minimal', on);
+  const b = $('#minAllBtn');
+  b.classList.toggle('on', on);
+  b.textContent = on ? '⤡' : '⤢';
+  b.dataset.tip = on ? 'Bedienkarte wieder einblenden' : 'Alles ausblenden bis auf die Menüleisten';
+}
+
+function initShell() {
+  const tabs = $$('#tabs .tab');
+  tabs.forEach(t => t.onclick = () => {
+    const aktiv = t.classList.contains('on') && !document.body.classList.contains('minimal');
+    if (aktiv) { setMinimal(true); return; }        // zweiter Klick klappt zu
+    setMinimal(false);
+    tabs.forEach(x => x.classList.toggle('on', x === t));
+    $$('.tabpane').forEach(p => p.classList.toggle('on', p.id === t.dataset.pane));
+  });
+  $('#minAllBtn').onclick = () => setMinimal(!document.body.classList.contains('minimal'));
+
+  const menu = $('#setMenu'), setBtn = $('#setBtn');
+  setBtn.onclick = ev => {
+    ev.stopPropagation();
+    setBtn.classList.toggle('on', menu.classList.toggle('open'));
+  };
+  document.addEventListener('pointerdown', ev => {
+    if (!menu.classList.contains('open')) return;
+    if (menu.contains(ev.target) || setBtn.contains(ev.target)) return;
+    menu.classList.remove('open'); setBtn.classList.remove('on');
+  });
+
+  if (matchMedia('(max-width: 940px)').matches) setMinimal(true);   // mobil: freie Sicht
+}
+
+/* ---------- Manuelles Verfahren ---------- */
+const JOG = { speed: 1, frame: 'welt', active: null };
+
+function initJog() {
+  $$('#frameSeg .seg').forEach(s => s.onclick = () => {
+    $$('#frameSeg .seg').forEach(x => x.classList.remove('on'));
+    s.classList.add('on'); JOG.frame = s.dataset.frame;
+  });
+  $$('#jogSpeedSeg .seg').forEach(s => s.onclick = () => {
+    $$('#jogSpeedSeg .seg').forEach(x => x.classList.remove('on'));
+    s.classList.add('on'); JOG.speed = +s.dataset.jogspeed;
+  });
+  $('#jogHome').onclick = () => { JOG.active = null; pick?.goHome(); };
+  $('#jogHold').onclick = () => { JOG.active = null; pick?.stop(); };
+}
+
+/** Loslassen beendet das Verfahren – global, damit es auch greift, wenn der
+ *  Zeiger die Taste verlässt. (Zuvor hing der Halt an lostpointercapture;
+ *  das feuerte teils sofort und machte aus dem Halten einen Einzelschritt.) */
+function jogHalt() {
+  JOG.active = null; JOG.q = null;
+  $$('.jbtn.act').forEach(x => x.classList.remove('act'));
+}
+addEventListener('pointerup', jogHalt);
+addEventListener('pointercancel', jogHalt);
+addEventListener('blur', jogHalt);
+
+function buildJog() {
+  const host = $('#jogJoints'), cart = $('#jogCart');
+  host.innerHTML = ''; cart.innerHTML = '';
+  if (!pick?.ok) {
+    host.innerHTML = '<p class="empty">Kein Roboter mit sechs Achsen in der Szene.</p>';
+    cart.innerHTML = '<p class="empty">–</p>';
+    return;
+  }
+  const zeile = (lab, kind, idx, valAttr) => `
+    <div class="jog-row">
+      <span class="jlab">${lab}</span>
+      <span class="jval" ${valAttr}>–</span>
+      <button class="jbtn" data-jog="${kind}" data-idx="${idx}" data-dir="-1" aria-label="${lab} minus">−</button>
+      <button class="jbtn" data-jog="${kind}" data-idx="${idx}" data-dir="1" aria-label="${lab} plus">+</button>
+    </div>`;
+  host.innerHTML = pick.joints.map((j, i) => zeile('A' + (i + 1), 'joint', i, `data-jval="${i}"`)).join('');
+  cart.innerHTML = ['X', 'Y', 'Z'].map((l, i) => zeile(l, 'cart', i, `data-cval="${i}"`)).join('');
+
+  $$('.jbtn[data-jog]').forEach(b => {
+    const los = ev => {
+      ev.preventDefault();
+      try { if (ev.pointerId != null) b.setPointerCapture?.(ev.pointerId); } catch { /* ohne Capture weiter */ }
+      b.classList.add('act');
+      if (pick.phase !== 'idle') pick.stop(true);
+      JOG.q = null;                                 // Sollpunkt frisch an der Istlage aufsetzen
+      JOG.active = { kind: b.dataset.jog, idx: +b.dataset.idx, dir: +b.dataset.dir, t0: performance.now() };
+      jogApply(JOG.active, 0.026 * JOG.speed, 0.005 * JOG.speed);   // kurzer Klick = 1,5° bzw. 5 mm
+    };
+    b.onpointerdown = los;
+    b.onpointerup = jogHalt; b.onpointercancel = jogHalt;
+  });
+}
+
+function jogTick(dt) {
+  if (globalThis.horst?.dbg) globalThis.horst.dbg.jogTicks++;
+  const a = JOG.active;
+  if (!a || !pick?.ok || !engine.loaded) return;
+  // Erst nach kurzem Halten dauerhaft fahren – der kurze Klick bleibt ein Einzelschritt.
+  if (performance.now() - (a.t0 ?? 0) < 260) return;
+  const schritt = Math.min(dt, 0.05);
+  jogApply(a, 0.45 * JOG.speed * schritt, 0.12 * JOG.speed * schritt);
+}
+
+/** Ein Verfahrschritt: betragJ in rad (Achsbetrieb), betragK in m (kartesisch). */
+function jogApply(a, betragJ, betragK) {
+  if (!a || !pick?.ok || !engine.loaded) return;
+  const d = engine.data;
+
+  if (globalThis.horst?.dbg) globalThis.horst.dbg.jogApplies++;
+  if (a.kind === 'joint') {
+    const j = pick.joints[a.idx];
+    const v = Math.max(j.lo + 0.01, Math.min(j.hi - 0.01, d.ctrl[j.ctrl] + a.dir * betragJ));
+    d.ctrl[j.ctrl] = v;
+    if (engine.paused) { d.qpos[j.qadr] = v; d.qvel.fill(0); engine.mujoco.mj_forward(engine.model, d); }
+    return;
+  }
+
+  // Kartesisch: gedämpfter Jacobi-Schritt auf den Sollwerten.
+  const s9 = pick.siteId * 9;
+  let ax;
+  if (JOG.frame === 'tool') {
+    // Werkzeugachse ist die Site-X-Achse; für die Bedienung ist Z die Anfahrrichtung.
+    const spalte = a.idx === 2 ? 0 : a.idx === 0 ? 1 : 2;
+    ax = [d.site_xmat[s9 + spalte], d.site_xmat[s9 + 3 + spalte], d.site_xmat[s9 + 6 + spalte]];
+    if (a.idx === 2) ax = ax.map(x => -x);              // Z+ = vom Werkstück weg
+  } else {
+    ax = [0, 0, 0]; ax[a.idx] = 1;
+  }
+  if (!JOG.q) JOG.q = pick.joints.map(j => d.ctrl[j.ctrl]);
+  // Schleppfehler begrenzen: die Vorgabe darf der Mechanik nicht davonlaufen.
+  const schlepp = Math.max(...pick.joints.map((j, i) => Math.abs(JOG.q[i] - d.qpos[j.qadr])));
+  if (schlepp > 0.35) return;
+  const delta = ax.map(v => v * a.dir * betragK);
+  const q = pick.jogStep(delta, JOG.q);
+  if (!q) return;
+  JOG.q = q;
+  pick.joints.forEach((j, i) => { d.ctrl[j.ctrl] = q[i]; if (engine.paused) d.qpos[j.qadr] = q[i]; });
+  if (engine.paused) { d.qvel.fill(0); engine.mujoco.mj_forward(engine.model, d); }
+}
+
+function refreshJog() {
+  if (!pick?.ok || !engine.loaded) return;
+  const R2D = 180 / Math.PI, d = engine.data;
+  $$('#jogJoints .jval').forEach(el => {
+    const j = pick.joints[+el.dataset.jval];
+    el.textContent = (d.qpos[j.qadr] * R2D).toFixed(1) + '°';
+  });
+  const s3 = pick.siteId * 3;
+  const p = [d.site_xpos[s3], d.site_xpos[s3 + 1], d.site_xpos[s3 + 2]];
+  $$('#jogCart .jval').forEach(el => { el.textContent = (p[+el.dataset.cval] * 1000).toFixed(0); });
+  $('#jogTcp').textContent = p.map(x => (x * 1000).toFixed(0)).join(' · ');
+}
+
+/* ---------- Scanmutti ---------- */
+async function ladeScanmuttiZelle() {
+  const eintrag = SCENES.find(s => s.id === 'scanmutti');
+  if (!eintrag) return false;
+  await loadScene(eintrag);
+  $('#sceneSelect').value = String(SCENES.indexOf(eintrag));
+  return true;
+}
+
+async function startScanmutti() {
+  const hatPakete = engine.loaded &&
+    [...Array(engine.model.nbody).keys()].some(i => (engine.bodyName(i) || '').startsWith('paket'));
+  if (!hatPakete) await ladeScanmuttiZelle();
+  pick.startScan();
 }
 
 function togglePause() {
@@ -383,6 +552,7 @@ function refreshStatus() {
   $('#stEnergy').textContent = `${E[0].toFixed(2)} | ${E[1].toFixed(2)} J`;
   refreshActuatorSliders();
   if (pick) $('#pickStatus').textContent = pick.status;
+  refreshJog();
   if (selectedBody > 0) {
     const p = selectedBody * 3, xp = d.xpos;
     $('#selInfoPos').textContent = `${xp[p].toFixed(3)}, ${xp[p + 1].toFixed(3)}, ${xp[p + 2].toFixed(3)} m`;

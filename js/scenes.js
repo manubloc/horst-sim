@@ -25,8 +25,10 @@ export const HORST600_JOINTS = [
 
 export const HORST600_HOME = [0, 0.45, -1.5, 0, 1.05, 0];
 
-const KP = [400, 400, 250, 60, 50, 25];
-const KV = [40, 40, 25, 6, 5, 2.5];
+// Steifere Lageregler: der Schwerkraft-Schleppfehler am TCP sinkt von 16,6 mm
+// auf 5,6 mm, gemessen ohne jedes Nachschwingen (Restbewegung 0,000 rad/s).
+const KP = [1200, 1200, 750, 180, 150, 75];
+const KV = [69, 69, 43, 10.4, 8.7, 4.3];
 const FR = [150, 150, 90, 28, 22, 12];
 const DAMP = [6, 6, 4, 1.2, 1.0, 0.5];
 const ARM = [0.08, 0.08, 0.06, 0.02, 0.02, 0.01];
@@ -174,13 +176,25 @@ export function sceneHorstCell() {
       <geom type="box" size="0.02 0.02 0.176" pos="-0.51 -0.39 0.176" rgba="0.12 0.13 0.14 1"/>
     </body>
     <body name="pad_rest" pos="0.40 -0.28 0.373">
-      <geom type="box" size="0.06 0.05 0.003" rgba="0.52 0.52 0.58 0.6"/>
+      <geom type="box" size="0.095 0.078 0.003" rgba="0.52 0.52 0.58 0.55"/>
+      <geom type="box" size="0.095 0.006 0.016" pos="0 0.084 0.019" rgba="0.52 0.52 0.58 0.55"/>
+      <geom type="box" size="0.095 0.006 0.016" pos="0 -0.084 0.019" rgba="0.52 0.52 0.58 0.55"/>
+      <geom type="box" size="0.006 0.090 0.016" pos="0.101 0 0.019" rgba="0.52 0.52 0.58 0.55"/>
+      <geom type="box" size="0.006 0.090 0.016" pos="-0.101 0 0.019" rgba="0.52 0.52 0.58 0.55"/>
     </body>
     <body name="pad_rot" pos="0.10 0.32 0.373">
-      <geom type="box" size="0.06 0.05 0.003" rgba="0.85 0.20 0.18 0.6"/>
+      <geom type="box" size="0.095 0.078 0.003" rgba="0.85 0.20 0.18 0.55"/>
+      <geom type="box" size="0.095 0.006 0.016" pos="0 0.084 0.019" rgba="0.85 0.20 0.18 0.55"/>
+      <geom type="box" size="0.095 0.006 0.016" pos="0 -0.084 0.019" rgba="0.85 0.20 0.18 0.55"/>
+      <geom type="box" size="0.006 0.090 0.016" pos="0.101 0 0.019" rgba="0.85 0.20 0.18 0.55"/>
+      <geom type="box" size="0.006 0.090 0.016" pos="-0.101 0 0.019" rgba="0.85 0.20 0.18 0.55"/>
     </body>
     <body name="pad_blau" pos="0.10 -0.32 0.373">
-      <geom type="box" size="0.06 0.05 0.003" rgba="0.18 0.38 0.9 0.6"/>
+      <geom type="box" size="0.095 0.078 0.003" rgba="0.18 0.38 0.9 0.55"/>
+      <geom type="box" size="0.095 0.006 0.016" pos="0 0.084 0.019" rgba="0.18 0.38 0.9 0.55"/>
+      <geom type="box" size="0.095 0.006 0.016" pos="0 -0.084 0.019" rgba="0.18 0.38 0.9 0.55"/>
+      <geom type="box" size="0.006 0.090 0.016" pos="0.101 0 0.019" rgba="0.18 0.38 0.9 0.55"/>
+      <geom type="box" size="0.006 0.090 0.016" pos="-0.101 0 0.019" rgba="0.18 0.38 0.9 0.55"/>
     </body>
     <body name="wanne_kugel" pos="0.40 0.28 0.373">
       <geom type="box" size="0.07 0.06 0.003" rgba="0.35 1 0.98 0.35"/>
@@ -206,6 +220,77 @@ export function sceneHorstCell() {
     ${robot.body}
     ${objXml}`;
   const key = buildKeyframe([{}], objs);
+  return h.open + world + '\n' + h.close(robot.actuators, robot.sensors, key);
+}
+
+/**
+ * Scanmutti: Pakete rutschen über eine Rampe vor den Roboter, werden je nach
+ * Etikettenlage gewendet und aufs Förderband gelegt.
+ * Rampenneigung 0.48 rad (27.5°); Reibwerte bewusst niedrig, damit die Pakete
+ * gleiten (MuJoCo nimmt das Maximum der beiden Kontaktpartner).
+ */
+export function sceneScanmutti() {
+  const h = sceneHeader({ floorSize: 3 });
+  const robot = horstBody({ pos: [0, 0, 0.37] });
+  const T = 0.48;                                   // Rampenneigung [rad]
+  const qTilt = [Math.cos(T / 2), Math.sin(T / 2), 0, 0];
+  const qFlip = [Math.cos((T + Math.PI) / 2), Math.sin((T + Math.PI) / 2), 0, 0];
+  const zOnRamp = (y) => 0.50 + (y - 0.56) * Math.tan(T) + 0.008 / Math.cos(T) + 0.020 / Math.cos(T);
+  const pakete = [
+    { name: 'paket_1', pos: [0.30, 0.245, 0.392], quat: [0, 1, 0, 0] },      // liegt schon bereit, Etikett unten
+    { name: 'paket_2', pos: [0.30, 0.40, zOnRamp(0.40)], quat: qTilt },
+    { name: 'paket_3', pos: [0.29, 0.52, zOnRamp(0.52)], quat: qFlip },
+    { name: 'paket_4', pos: [0.31, 0.63, zOnRamp(0.63)], quat: qTilt },
+    { name: 'paket_5', pos: [0.30, 0.73, zOnRamp(0.73)], quat: qFlip },
+    { name: 'paket_6', pos: [0.29, 0.81, zOnRamp(0.81)], quat: qTilt },
+  ];
+  const paketXml = pakete.map(p => `
+    <body name="${p.name}" pos="${v(p.pos)}" quat="${p.quat.map(x => +x.toFixed(5)).join(' ')}">
+      <freejoint/>
+      <geom type="box" size="0.048 0.035 0.020" rgba="0.72 0.55 0.34 1" mass="0.22" friction="0.25 0.002 0.0001"/>
+      <geom name="${p.name}_etikett" type="box" size="0.022 0.014 0.0022" pos="0 0 0.0215"
+            rgba="0.97 0.96 0.90 1" mass="0.004" friction="0.25 0.002 0.0001"/>
+      <geom type="box" size="0.014 0.0035 0.0006" pos="0 0.006 0.0238" rgba="0.10 0.12 0.13 1" mass="0.0005"/>
+      <geom type="box" size="0.014 0.0035 0.0006" pos="0 -0.004 0.0238" rgba="0.10 0.12 0.13 1" mass="0.0005"/>
+    </body>`).join('');
+  const world = `
+    <body name="tisch" pos="0.18 0 0">
+      <geom type="box" size="0.62 0.52 0.018" pos="0 0 0.352" rgba="0.20 0.22 0.23 1" friction="0.30 0.003 0.0001"/>
+      <geom type="box" size="0.02 0.02 0.176" pos="0.59 0.49 0.176"   rgba="0.12 0.13 0.14 1"/>
+      <geom type="box" size="0.02 0.02 0.176" pos="0.59 -0.49 0.176"  rgba="0.12 0.13 0.14 1"/>
+      <geom type="box" size="0.02 0.02 0.176" pos="-0.59 0.49 0.176"  rgba="0.12 0.13 0.14 1"/>
+      <geom type="box" size="0.02 0.02 0.176" pos="-0.59 -0.49 0.176" rgba="0.12 0.13 0.14 1"/>
+    </body>
+
+    <!-- Zuführrampe (+Y) mit Seitenführungen -->
+    <body name="rampe" pos="0.30 0.56 0.50" euler="${T} 0 0">
+      <geom type="box" size="0.14 0.30 0.008" rgba="0.26 0.29 0.31 1" friction="0.28 0.002 0.0001"/>
+      <geom type="box" size="0.008 0.30 0.024" pos="0.148 0 0.024"  rgba="0.05 0.35 0.36 1"/>
+      <geom type="box" size="0.008 0.30 0.024" pos="-0.148 0 0.024" rgba="0.05 0.35 0.36 1"/>
+    </body>
+    <body name="rampengestell" pos="0.30 0.74 0">
+      <geom type="box" size="0.015 0.015 0.29" pos="0.15 0.04 0.29"  rgba="0.12 0.13 0.14 1"/>
+      <geom type="box" size="0.015 0.015 0.29" pos="-0.15 0.04 0.29" rgba="0.12 0.13 0.14 1"/>
+      <geom type="box" size="0.16 0.015 0.012" pos="0 0.04 0.57"     rgba="0.12 0.13 0.14 1"/>
+    </body>
+    <!-- Anschlag: hält die Pakete in der Greifzone -->
+    <body name="anschlag" pos="0.30 0.198 0.392">
+      <geom type="box" size="0.15 0.006 0.022" rgba="0.05 0.35 0.36 1"/>
+    </body>
+
+    <!-- Förderband (-Y): Transport übernimmt die Steuerung kinematisch -->
+    <body name="band" pos="0.26 -0.34 0">
+      <geom type="box" size="0.30 0.09 0.012" pos="0 0 0.402" rgba="0.13 0.15 0.16 1" friction="0.5 0.004 0.0001"/>
+      <geom type="box" size="0.30 0.006 0.020" pos="0 0.096 0.434"  rgba="0.05 0.35 0.36 1"/>
+      <geom type="box" size="0.30 0.006 0.020" pos="0 -0.096 0.434" rgba="0.05 0.35 0.36 1"/>
+      <geom type="cylinder" size="0.024 0.09" pos="0.30 0 0.402"  euler="1.5708 0 0" rgba="0.35 1 0.98 0.5"/>
+      <geom type="cylinder" size="0.024 0.09" pos="-0.30 0 0.402" euler="1.5708 0 0" rgba="0.35 1 0.98 0.5"/>
+      <geom type="box" size="0.02 0.02 0.014" pos="0.26 0 0.376"  rgba="0.12 0.13 0.14 1"/>
+      <geom type="box" size="0.02 0.02 0.014" pos="-0.26 0 0.376" rgba="0.12 0.13 0.14 1"/>
+    </body>
+    ${robot.body}
+    ${paketXml}`;
+  const key = buildKeyframe([{}], pakete);
   return h.open + world + '\n' + h.close(robot.actuators, robot.sensors, key);
 }
 
@@ -259,6 +344,7 @@ export function sceneStack() {
 
 export const SCENES = [
   { id: 'horst_cell', name: 'HORST600 – Arbeitszelle', make: sceneHorstCell },
+  { id: 'scanmutti', name: 'Scanmutti – Paketzuführung', make: sceneScanmutti },
   { id: 'horst_solo', name: 'HORST600 – Solo', make: sceneHorstSolo },
   { id: 'pendulum',  name: 'Beispiel: Pendelkette', make: scenePendulum },
   { id: 'stack',     name: 'Beispiel: Kistenstapel', make: sceneStack },

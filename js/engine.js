@@ -33,8 +33,9 @@ export class SimEngine {
   }
 
   constructor(mujoco) {
-    this.attachInfo = null;
-    this._ikData = null;      // Scratch-MjData für die IK (pick.js)   // Vakuumgreifer: { qadr, dofadr, siteId, relp, relq }
+    this.attachInfo = null;   // Vakuumgreifer: { qadr, dofadr, siteId, relp, relq }
+    this.onPreStep = null;    // zusätzlicher Antrieb vor jedem Schritt (z. B. Förderband)
+    this._ikData = null;      // Scratch-MjData für die IK (pick.js)
     this.mujoco = mujoco;
     this.model = null;
     this.data = null;
@@ -123,6 +124,12 @@ export class SimEngine {
 
   releaseBody() { this.attachInfo = null; }
 
+  /** Vor jedem Physikschritt: Greifer-Kopplung und angemeldete Antriebe. */
+  _preStep() {
+    this._applyAttach();
+    if (this.onPreStep) this.onPreStep();
+  }
+
   _applyAttach() {
     const a = this.attachInfo;
     if (!a || !this.loaded) return;
@@ -146,7 +153,7 @@ export class SimEngine {
     while (this._accum >= ts && steps < maxSteps) {
       this.data.xfrc_applied.fill(0);
       if (this.pert.active) mj.mjv_applyPerturbForce(this.model, this.data, this.pert);
-      this._applyAttach();
+      this._preStep();
       mj.mj_step(this.model, this.data);
       this._accum -= ts;
       steps++;
@@ -166,7 +173,7 @@ export class SimEngine {
     if (!this.loaded) return;
     this.data.xfrc_applied.fill(0);
     if (this.pert.active) this.mujoco.mjv_applyPerturbForce(this.model, this.data, this.pert);
-    this._applyAttach();
+    this._preStep();
     this.mujoco.mj_step(this.model, this.data);
   }
 
