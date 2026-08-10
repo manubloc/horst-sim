@@ -83,34 +83,34 @@
 
       <article class="appcard">
         <header><h4>Pick &amp; Place</h4>
-          <button class="info" data-tip="Der Roboter holt die farbigen Kisten einzeln vom Tisch und legt sie auf das gleichfarbige Ablagefeld.">i</button>
+          <button class="info" data-tip="Palettieren: der Roboter stapelt die Würfel lagenweise im 2×2-Muster auf die Palette der jeweiligen Farbe. Der Stapel entsteht physikalisch – jede Lage ruht auf der darunter.">i</button>
         </header>
-        <p class="appdesc">Farbige Kisten auf das passende Ablagefeld legen.</p>
+        <p class="appdesc">Würfel lagenweise auf Paletten stapeln.</p>
         <div class="btnrow">
-          <button id="pickRotBtn" class="btn pick red" disabled>Rote greifen</button>
-          <button id="pickBlauBtn" class="btn pick blue" disabled>Blaue greifen</button>
+          <button id="palRotBtn" class="btn pick red">Rote palettieren</button>
+          <button id="palBlauBtn" class="btn pick blue">Blaue palettieren</button>
         </div>
       </article>
 
       <article class="appcard">
         <header><h4>Part Separation</h4>
-          <button class="info" data-tip="Sortiert alle losen Teile nach Sorte: rote und blaue Kisten auf ihre Felder, Kugeln in die Wanne, alles Übrige auf das Restfeld.">i</button>
+          <button class="info" data-tip="Rote und blaue Kugeln liegen verstreut auf dem Tisch. Der Roboter legt sie sortenrein von oben in die beiden Kästen.">i</button>
         </header>
-        <p class="appdesc">Alle Teile nach Sorte trennen und ablegen.</p>
+        <p class="appdesc">Kugeln nach Farbe in zwei Kästen legen.</p>
         <div class="btnrow">
-          <button id="pickAlleBtn" class="btn pick all" disabled>Sortieren starten</button>
-          <button id="pickKugelBtn" class="btn pick teal" disabled>Nur Kugeln</button>
+          <button id="sortRotBtn" class="btn pick red">Rote sortieren</button>
+          <button id="sortBlauBtn" class="btn pick blue">Blaue sortieren</button>
+          <button id="sortAlleBtn" class="btn pick all">Beide Farben</button>
         </div>
       </article>
 
       <article class="appcard">
         <header><h4>Scanmutti</h4>
-          <button class="info" data-tip="Pakete rutschen über die Rampe vor den Roboter. Er prüft die Lage des Etiketts, wendet das Paket bei Bedarf und legt es aufs Förderband.">i</button>
+          <button class="info" data-tip="Pakete verschiedener Größe rutschen über die Rampe. Der Roboter prüft das Etikett, kippt es bei Bedarf über die Wendekante und legt es aufs Förderband. Ist die Zielbox am Bandende voll, endet das Programm.">i</button>
         </header>
-        <p class="appdesc">Pakete von der Rampe scannen, wenden und aufs Förderband legen.</p>
+        <p class="appdesc">Pakete prüfen, wenden und aufs Förderband legen.</p>
         <div class="btnrow">
           <button id="scanStartBtn" class="btn pick amber">Pakete scannen</button>
-          <button id="scanSceneBtn" class="btn ghost sm">Zelle laden</button>
         </div>
       </article>
 

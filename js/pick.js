@@ -16,23 +16,27 @@
 
 import { HORST600_HOME } from './scenes.js';
 
-const ZIEL = {
-  rot:   [0.10, 0.32],
-  blau:  [0.10, -0.32],
-  kugel: [0.40, 0.28],   // Wanne mit umlaufendem Rand – hält rollende Kugeln
-  rest:  [0.40, -0.28],
-};
+/* Zielorte der Anwendungen (siehe scenes.js). */
+const KASTEN = { rot: [0.16, 0.36], blau: [0.16, -0.36] };
+const KASTEN_ABWURF = 0.462;      // TCP fährt in die Kastenöffnung: Kugel wird gelegt, nicht geworfen
+                                  // (Rand liegt bei 0,438 m; Flansch bleibt darüber)
+const PALETTE = { rot: [0.16, 0.36], blau: [0.16, -0.36] };
+const PAL_Z0 = 0.382;             // Oberkante Palettendeck
+const WUERFEL_HW = 0.026;         // halbe Würfelkante
+const WENDE = [0.420, -0.10];          // Wendetisch
+const WENDE_Z0 = 0.386;                // Oberkante des Wendetischs
 /* Scanmutti: Kennzahlen der Paketzelle (siehe sceneScanmutti in scenes.js). */
 const SCAN = {
-  bandZiel: [0.16, -0.34], bandZ: 0.455,          // Ablagepunkt auf dem Förderband
-  bandY: -0.34, bandHalbY: 0.11, bandX0: -0.10, bandX1: 0.56,
-  bandV: 0.11,                                     // Bandgeschwindigkeit [m/s]
-  zone: { yMin: 0.15, yMax: 0.40, xMin: 0.05, xMax: 0.56, zMax: 0.47 },
-  spawn: { x: 0.30, y: 0.79, z: 0.70, tilt: 0.48 },
-  takt: 1.8,                                       // s zwischen zwei Nachschub-Paketen
+  bandZiel: [0.20, -0.34], bandZ: 0.470,           // Ablagepunkt auf dem Förderband
+  bandY: -0.34, bandHalbY: 0.12, bandX0: -0.12, bandX1: 1.14,
+  bandV: 0.16,                                     // Bandgeschwindigkeit [m/s]
+  zone: { yMin: 0.13, yMax: 0.38, xMin: 0.05, xMax: 0.55, zMax: 0.48 },
+  spawn: { x: 0.30, y: 0.95, z: 0.80, tilt: 0.42 },
+  takt: 2.2,                                       // s zwischen zwei Nachschub-Paketen
+  box: [1.30, -0.34], boxMax: 8,                   // Zielbox: voll = Programmende
 };
 
-const HOVER_Z = 0.535;      // sichere Anfahrhöhe (Welt)
+const HOVER_Z = 0.560;      // sichere Anfahrhöhe (Welt)
 const DROP_Z = 0.445;
 const SETTLE = 0.12;        // s Nachlauf je Phase
 
@@ -51,11 +55,14 @@ export class PickController {
     this.e = engine;
     this.phase = 'idle';
     this.status = 'bereit';
-    this.queue = [];
+    this._seq = [];            // Schrittkette des laufenden Programms
+    this._planer = null;       // plant den jeweils nächsten Arbeitsgang nach
     this.mode = null;
     this.ramp = null;
     this.wait = 0;
-    this.dropCount = { rot: 0, blau: 0, kugel: 0, rest: 0 };
+    this.zaehler = 0;
+    this.zielName = null;
+    this.lagen = { rot: 0, blau: 0 };
     this.scanCount = 0; this.flipCount = 0;
     this._nachschub = 0; this._flip = null;
     this._bandDofs = [];
@@ -269,6 +276,20 @@ export class PickController {
     return dq;
   }
 
+  /** IK mit fest vorgegebener Werkzeugneigung (90° = Werkzeugachse waagerecht). */
+  _solveTilt(target, tiltDeg) {
+    return this.solveIK(target, undefined, tiltDeg)
+        ?? this.solveIK(target, HORST600_HOME.slice(), tiltDeg)
+        ?? this.solveIK(target, this.q().map((v, i) => v + (i === 4 ? 0.5 : 0)), tiltDeg);
+  }
+
+  /** Waagerechte Werkzeugrichtung am Wendetisch (radial vom Fuß weg). */
+  _wendeAchse() {
+    const b3 = this.baseId * 3, xp = this.e.data.xpos;
+    const phi = Math.atan2(WENDE[1] - xp[b3 + 1], WENDE[0] - xp[b3]);
+    return [Math.cos(phi), Math.sin(phi)];
+  }
+
   /** IK mit Rückfallstufen gegen lokale Minima und Reichweitengrenze. */
   _solveSmart(target) {
     return this.solveIK(target)
@@ -296,18 +317,6 @@ export class PickController {
     }
     return out;
   }
-
-  startScan() {
-    if (!this.ok) { this.status = 'nicht bereit'; return; }
-    if (!this._pakete().length) { this.status = 'keine Pakete – Scanmutti-Zelle laden'; return; }
-    this.stop(true);
-    this.scanCount = 0; this.flipCount = 0;
-    this.phase = 'scanNext';
-    this.status = 'Paketzuführung läuft';
-    this.e.onPreStep = () => this._bandAntrieb();   // Band vor jedem Physikschritt antreiben
-    if (this.e.paused) this.e.paused = false;
-  }
-
   /** Wird vor JEDEM Physikschritt gerufen. Einmal pro Bild reicht nicht:
    *  die Zwischenschritte dämpfen die Bandgeschwindigkeit weg (gemessen 2,8 statt 11 cm/s). */
   _bandAntrieb() {
@@ -315,28 +324,26 @@ export class PickController {
     for (const dofadr of this._bandDofs) { d.qvel[dofadr] = SCAN.bandV; d.qvel[dofadr + 1] = 0; }
   }
 
-  /** Förderband + Nachschub laufen unabhängig vom Programm. */
+  /** Förderband und Nachschub laufen unabhängig vom Programmablauf. */
   _bandLauf(dt) {
-    this._bandDofs.length = 0;
     const e = this.e;
     if (!e.loaded) return;
-    const pak = this._pakete();
-    if (!pak.length) return;
+    this._bandDofs.length = 0;
     const md = e.model, d = e.data;
     const gehalten = e.attachInfo ? e.attachInfo.qadr : -1;
     this._nachschub -= dt;
     let recycelt = false;
-    for (const b of pak) {
+    for (const b of this._pakete()) {
       const j = md.body_jntadr[b];
       const qadr = md.jnt_qposadr[j], dofadr = md.jnt_dofadr[j];
       if (qadr === gehalten) continue;
-      const p = b * 3;
-      const x = d.xpos[p], y = d.xpos[p + 1], z = d.xpos[p + 2];
-      const aufBand = Math.abs(y - SCAN.bandY) < SCAN.bandHalbY && z > 0.40 && z < 0.55
+      const x = d.xpos[b * 3], y = d.xpos[b * 3 + 1], z = d.xpos[b * 3 + 2];
+      const aufBand = Math.abs(y - SCAN.bandY) < SCAN.bandHalbY && z > 0.40 && z < 0.56
         && x > SCAN.bandX0 && x < SCAN.bandX1;
-      if (aufBand) this._bandDofs.push(dofadr);      // Antrieb läuft vor jedem Physikschritt
-      const fertig = (x >= SCAN.bandX1 && Math.abs(y - SCAN.bandY) < 0.2) || z < 0.15;
-      if (fertig && !recycelt && this._nachschub <= 0) {
+      if (aufBand) this._bandDofs.push(dofadr);
+      // Sicherheitsnetz: was neben die Zelle fällt, kommt oben auf der Rampe zurück.
+      const daneben = z < 0.12 && !(Math.abs(x - SCAN.box[0]) < 0.19 && Math.abs(y - SCAN.box[1]) < 0.17);
+      if (daneben && !recycelt && this._nachschub <= 0) {
         this._neuAufRampe(qadr, dofadr);
         this._nachschub = SCAN.takt;
         recycelt = true;
@@ -347,14 +354,14 @@ export class PickController {
   /** Paket oberhalb der Rampe neu einsetzen – jedes Mal etwas anders. */
   _neuAufRampe(qadr, dofadr) {
     const d = this.e.data, s = SCAN.spawn;
-    const gier = (Math.random() - 0.5) * 0.9;
+    const gier = (Math.random() - 0.5) * 0.8;
     const kipp = s.tilt + (Math.random() < 0.5 ? Math.PI : 0);   // Etikett zufällig oben/unten
     const qz = [Math.cos(gier / 2), 0, 0, Math.sin(gier / 2)];
     const qx = [Math.cos(kipp / 2), Math.sin(kipp / 2), 0, 0];
     const q = qMul(qz, qx);
-    d.qpos[qadr] = s.x + (Math.random() - 0.5) * 0.11;
-    d.qpos[qadr + 1] = s.y + (Math.random() - 0.5) * 0.04;
-    d.qpos[qadr + 2] = s.z + Math.random() * 0.05;
+    d.qpos[qadr] = s.x + (Math.random() - 0.5) * 0.12;
+    d.qpos[qadr + 1] = s.y + (Math.random() - 0.5) * 0.05;
+    d.qpos[qadr + 2] = s.z + Math.random() * 0.06;
     for (let k = 0; k < 4; k++) d.qpos[qadr + 3 + k] = q[k];
     for (let k = 0; k < 6; k++) d.qvel[dofadr + k] = 0;
   }
@@ -372,231 +379,352 @@ export class PickController {
     return best;
   }
 
-  /** Etikett oben? Lokale +Z-Achse des Pakets in der Welt. */
+  /** Etikett oben? Lokale +Z-Achse des Pakets zeigt in der Welt nach oben. */
   _etikettOben(bodyId) { return this.e.data.xmat[bodyId * 9 + 8] > 0.5; }
 
-  /* ---------- Sequenz ---------- */
-  start(mode) {
-    if (!this.ok) { this.status = 'nicht bereit'; return; }
-    const e = this.e;
-    const FREE = e.mujoco.mjtJoint?.mjJNT_FREE?.value ?? 0;
-    this.queue = [];
-    for (let i = 1; i < e.model.nbody; i++) {
-      if (e.model.body_jntnum[i] !== 1) continue;
-      const j = e.model.body_jntadr[i];
-      if (e.model.jnt_type[j] !== FREE) continue;
-      const key = this._classify(i);
-      if (mode !== 'alle' && key !== mode) continue;
-      this.queue.push(e.bodyName(i));
+  /* ================= Ablaufsteuerung =================
+   * Jedes Programm ist eine Kette kleiner Schritte. Zwei Regeln sind fest
+   * eingebaut und gelten für alle Anwendungen:
+   *   1. Angefahren wird immer aus der Sicherheitshöhe SENKRECHT nach unten.
+   *   2. Nach Greifen und nach Loslassen geht es zuerst SENKRECHT nach oben,
+   *      erst danach seitlich weiter – so streift nichts an Kastenwänden,
+   *      Bandführungen oder Nachbarteilen.
+   * Ziele dürfen Funktionen sein; sie werden erst bei der Ausführung
+   * ausgewertet, weil sich Teile bis dahin noch bewegen.
+   * ==================================================== */
+
+  /** Schrittkette anhängen. */
+  _add(...schritte) { this._seq.push(...schritte.flat()); }
+
+  /** Senkrechter Weg nach oben von der aktuellen TCP-Lage. */
+  _hoch(z = HOVER_Z, dur = 0.6) {
+    return { t: 'move', to: () => { const s = this.siteId * 3, d = this.e.data;
+      return [d.site_xpos[s], d.site_xpos[s + 1], z]; }, dur };
+  }
+
+  /** Teil aufnehmen: über das Teil, senkrecht runter, saugen, senkrecht hoch. */
+  _holen(bodyFn, text) {
+    let b = -1;
+    return [
+      { t: 'call', fn: () => { b = bodyFn(); this.zielName = b > 0 ? this.e.bodyName(b) : '?';
+                               this.status = text ? text() : `fahre zu „${this.zielName}"`; } },
+      { t: 'move', to: () => { const p = b * 3, d = this.e.data; return [d.xpos[p], d.xpos[p + 1], HOVER_Z]; }, dur: 1.1 },
+      { t: 'move', to: () => { const p = b * 3, d = this.e.data;
+                               return [d.xpos[p], d.xpos[p + 1], d.xpos[p + 2] + this._topHalf(b) + 0.010]; }, dur: 0.7 },
+      { t: 'grab', body: () => b },
+      this._hoch(HOVER_Z, 0.7),
+    ];
+  }
+
+  /** Teil ablegen: über den Zielpunkt, senkrecht runter, loslassen, senkrecht hoch. */
+  _ablegen(zielFn, abwurfZ, text) {
+    return [
+      { t: 'call', fn: () => { if (text) this.status = text(); } },
+      { t: 'move', to: () => { const z = zielFn(); return [z[0], z[1], HOVER_Z]; }, dur: 1.2 },
+      { t: 'move', to: () => { const z = zielFn(); return [z[0], z[1], typeof abwurfZ === 'function' ? abwurfZ() : abwurfZ]; }, dur: 0.8 },
+      { t: 'release' },
+      { t: 'wait', s: 0.22 },
+      this._hoch(HOVER_Z, 0.7),
+    ];
+  }
+
+  /* ---------- Programm 1: Kugeln in die Kästen ---------- */
+  startKugeln(farbe) {
+    if (!this._bereit()) return;
+    this._neu('kugeln');
+    this.farbe = farbe;                              // 'rot' | 'blau' | 'alle'
+    this.status = 'Kugeln sortieren';
+    this._planer = () => this._planKugel();
+    this._planer();
+  }
+
+  _kugeln(farbe) {
+    const out = [];
+    for (let i = 1; i < this.e.model.nbody; i++) {
+      const n = this.e.bodyName(i) || '';
+      if (!n.startsWith('kugel_') || !this._istFrei(i)) continue;
+      const f = n.includes('_rot') ? 'rot' : 'blau';
+      if (farbe !== 'alle' && f !== farbe) continue;
+      if (this._imKasten(i, f)) continue;             // liegt schon richtig
+      out.push({ i, f });
     }
-    if (!this.queue.length) { this.status = 'keine passenden Teile gefunden'; return; }
-    // Kugeln zuerst: sie rollen bei jeder Armbewegung weiter und sind sonst
-    // nach den Kisten längst aus der Reichweite gerollt (gemessen).
-    const order = { kugel: 0, rot: 1, blau: 2, rest: 3 };
-    this.queue.sort((a, b) => {
-      const ka = order[this._classify(this._body(a))], kb = order[this._classify(this._body(b))];
-      return ka !== kb ? ka - kb : this._dist(a) - this._dist(b);
-    });
-    this.mode = mode;
-    this.dropCount = { rot: 0, blau: 0, kugel: 0, rest: 0 };
+    const b3 = this.baseId * 3, xp = this.e.data.xpos;
+    out.sort((a, b) => Math.hypot(xp[a.i * 3] - xp[b3], xp[a.i * 3 + 1] - xp[b3 + 1])
+                     - Math.hypot(xp[b.i * 3] - xp[b3], xp[b.i * 3 + 1] - xp[b3 + 1]));
+    return out;
+  }
+
+  _imKasten(bodyId, farbe) {
+    const k = KASTEN[farbe], p = bodyId * 3, d = this.e.data;
+    return Math.abs(d.xpos[p] - k[0]) < 0.10 && Math.abs(d.xpos[p + 1] - k[1]) < 0.085;
+  }
+
+  _planKugel() {
+    const rest = this._kugeln(this.farbe);
+    if (!rest.length) { this._abschluss(`fertig ✓ · ${this.zaehler} Kugeln sortiert`); return; }
+    const { i, f } = rest[0];
+    this.zaehler++;
+    this._add(
+      this._holen(() => i, () => `hole ${f === 'rot' ? 'rote' : 'blaue'} Kugel (${rest.length} offen)`),
+      // Abwurf deutlich über der Kastenoberkante: der Greifer bleibt außerhalb,
+      // die Kugel fällt die letzten Zentimeter selbst hinein.
+      this._ablegen(() => this._kastenPunkt(f), KASTEN_ABWURF, () => `lege in Kasten ${f}`),
+    );
+  }
+
+  /** Streupunkt im Kasten, damit die Kugeln sich verteilen statt zu stapeln. */
+  _kastenPunkt(farbe) {
+    const k = KASTEN[farbe], n = this.zaehler;
+    // Streuung bewusst eng: der Flansch (r ≈ 32 mm) muss im lichten Innenmaß
+    // (95 × 80 mm) bleiben, wenn der Greifer in den Kasten eintaucht.
+    return [k[0] + ((n % 3) - 1) * 0.042, k[1] + (((n / 3) | 0) % 2 ? 0.028 : -0.028)];
+  }
+
+  /* ---------- Programm 2: Würfel palettieren ---------- */
+  startPalettieren(farbe) {
+    if (!this._bereit()) return;
+    this._neu('palette');
+    this.farbe = farbe;
+    this.lagen = { rot: 0, blau: 0 };
+    this.status = 'Palettieren';
+    this._planer = () => this._planPalette();
+    this._planer();
+  }
+
+  _wuerfel(farbe) {
+    const out = [];
+    for (let i = 1; i < this.e.model.nbody; i++) {
+      const n = this.e.bodyName(i) || '';
+      if (!n.startsWith('wuerfel_') || !this._istFrei(i)) continue;
+      const f = n.includes('_rot') ? 'rot' : 'blau';
+      if (farbe !== 'alle' && f !== farbe) continue;
+      const p = i * 3, d = this.e.data;
+      const pal = PALETTE[f];
+      if (Math.abs(d.xpos[p] - pal[0]) < 0.11 && Math.abs(d.xpos[p + 1] - pal[1]) < 0.10) continue;
+      out.push({ i, f });
+    }
+    const b3 = this.baseId * 3, xp = this.e.data.xpos;
+    out.sort((a, b) => Math.hypot(xp[a.i * 3] - xp[b3], xp[a.i * 3 + 1] - xp[b3 + 1])
+                     - Math.hypot(xp[b.i * 3] - xp[b3], xp[b.i * 3 + 1] - xp[b3 + 1]));
+    return out;
+  }
+
+  _planPalette() {
+    const rest = this._wuerfel(this.farbe);
+    if (!rest.length) { this._abschluss(`fertig ✓ · ${this.zaehler} Würfel palettiert`); return; }
+    const { i, f } = rest[0];
+    const n = this.lagen[f]++;                        // laufende Nummer je Palette
+    const platz = n % 4, lage = (n / 4) | 0;
+    const dx = (platz % 2 ? 1 : -1) * 0.029;
+    const dy = (platz < 2 ? 1 : -1) * 0.029;
+    const pal = PALETTE[f];
+    this.zaehler++;
+    // Ablagehöhe wächst mit jeder Lage; 12 mm Luft, dann fällt der Würfel sauber auf.
+    const z = () => PAL_Z0 + lage * (2 * WUERFEL_HW) + WUERFEL_HW + 0.030;
+    this._add(
+      this._holen(() => i, () => `palettiere ${f} · Lage ${lage + 1}, Platz ${platz + 1}`),
+      this._ablegen(() => [pal[0] + dx, pal[1] + dy], z, () => `setze auf Palette ${f}`),
+    );
+  }
+
+  /* ---------- Programm 3: Scanmutti ---------- */
+  startScan() {
+    if (!this._bereit()) return;
+    if (!this._pakete().length) { this.status = 'keine Pakete – Scanmutti-Zelle laden'; return; }
+    this._neu('scan');
     this.scanCount = 0; this.flipCount = 0;
-    this._nachschub = 0; this._flip = null;
-    this.phase = 'next';
-    this.status = this.queue.length + ' Teile ...';
-    if (e.paused) e.paused = false;
+    this.status = 'Paketzuführung läuft';
+    this.e.onPreStep = () => this._bandAntrieb();
+    this._planer = () => this._planScan();
+    this._planer();
   }
 
-  _dist(name) {
-    const e = this.e, i = this._body(name);
-    if (i < 0) return 9e9;
-    const b3 = this.baseId * 3, p = i * 3, xp = e.data.xpos;
-    return Math.hypot(xp[p] - xp[b3], xp[p + 1] - xp[b3 + 1]);
+  _planScan() {
+    if (this._boxVoll()) { this._abschluss(`Zielbox voll ✓ · ${this.scanCount} Pakete verpackt`); return; }
+    const b = this._paketInZone();
+    if (b < 0) {                                      // Rampe braucht einen Moment
+      this.status = `warte auf Nachschub · ${this.scanCount} im Karton`;
+      this._add({ t: 'wait', s: 0.4 }, { t: 'call', fn: () => this._planer() });
+      return;
+    }
+    this._bearbeite(b, 0);
   }
 
-  _body(name) {
-    for (let i = 0; i < this.e.model.nbody; i++) if (this.e.bodyName(i) === name) return i;
-    return -1;
+  /**
+   * Ein Paket abarbeiten. Liegt das Etikett unten, kann ein Sauggreifer es
+   * nicht in der Hand wenden: das Paket wird mit Überstand auf die Wendekante
+   * gelegt, kippt dort über die Kante und wird anschließend an seiner neuen
+   * Oberseite wieder gegriffen – so oft, bis das Etikett oben liegt.
+   */
+  _bearbeite(b, versuch) {
+    this._add(this._holen(() => b, () => versuch
+      ? `greife „${this.e.bodyName(b)}" neu (Wendung ${versuch})`
+      : `greife „${this.e.bodyName(b)}"`));
+    this._add({ t: 'call', fn: () => {
+      if (this._etikettOben(b) || versuch >= 6) {
+        this.status = this._etikettOben(b) ? 'Etikett oben ✓ – aufs Band' : 'Wendung erschöpft – trotzdem aufs Band';
+        this._add(this._ablegen(() => this._bandPunkt(), SCAN.bandZ, () => 'lege aufs Förderband'),
+                  { t: 'call', fn: () => { this.scanCount++; this._planer(); } });
+      } else {
+        this.flipCount++;
+        this.status = 'Etikett unten – Paket wird gewendet';
+        this._add(this._wendeSchritte(b),
+                  { t: 'call', fn: () => this._bearbeite(b, versuch + 1) });
+      }
+    } });
   }
 
-  /** Grundstellung anfahren (Manual Control). */
+  /**
+   * Wenden ohne Drehung in der Hand: Der Roboter stellt das Werkzeug auf 90°
+   * an und setzt das Paket damit auf eine SEITENFLÄCHE des Wendetischs ab.
+   * Es liegt dann exakt 90° gedreht da und wird von der neuen Oberseite
+   * wieder gegriffen – zwei Durchgänge ergeben die volle Wendung um 180°.
+   */
+  _wendeSchritte(b) {
+    const ax = () => this._wendeAchse();
+    // Beim angestellten Werkzeug hängt das Paket seitlich neben dem TCP:
+    // Ablagepunkt deshalb um den Greifabstand entgegen der Werkzeugachse versetzen.
+    const d = () => this._topHalf(b) + 0.012;
+    const hoehe = () => WENDE_Z0 + this._langHalb(b) + 0.008;
+    const tcp = (dz = 0) => { const a = ax(), dd = d();
+      return [WENDE[0] - a[0] * dd, WENDE[1] - a[1] * dd, hoehe() + dz]; };
+    return [
+      { t: 'call', fn: () => { this.status = 'stelle das Werkzeug an und setze das Paket auf die Seite'; } },
+      { t: 'move', to: () => [WENDE[0] - ax()[0] * 0.14, WENDE[1] - ax()[1] * 0.14, HOVER_Z], dur: 1.1 },
+      { t: 'move', to: () => tcp(0.10), tilt: 90, dur: 1.0 },     // Werkzeug waagerecht anstellen
+      { t: 'move', to: () => tcp(0), tilt: 90, dur: 0.8 },        // senkrecht absetzen
+      { t: 'release' },
+      { t: 'wait', s: 0.35 },
+      // Rückzug ORTHOGONAL zur Greiffläche: erst waagerecht weg, dann hoch.
+      { t: 'move', to: () => { const a = ax(), s3 = this.siteId * 3, dd = this.e.data;
+          return [dd.site_xpos[s3] - a[0] * 0.10, dd.site_xpos[s3 + 1] - a[1] * 0.10, dd.site_xpos[s3 + 2]]; },
+        tilt: 90, dur: 0.7 },
+      this._hoch(HOVER_Z, 0.8),
+      { t: 'wait', s: 0.4 },
+    ];
+  }
+
+  /** Größtes halbes Kantenmaß – so hoch steht das Paket nach dem Wenden höchstens. */
+  _langHalb(bodyId) {
+    const md = this.e.model, g = md.body_geomadr[bodyId];
+    if (g < 0) return 0.03;
+    const s = md.geom_size;
+    return Math.max(s[3 * g], s[3 * g + 1], s[3 * g + 2]);
+  }
+
+  _bandPunkt() {
+    const n = this.scanCount % 3;
+    return [SCAN.bandZiel[0] + n * 0.055 - 0.055, SCAN.bandZiel[1]];
+  }
+
+  /** Pakete in der Zielbox zählen (Programmende, wenn sie voll ist). */
+  _boxVoll() { return this._inBox() >= SCAN.boxMax; }
+
+  _inBox() {
+    const d = this.e.data;
+    let n = 0;
+    for (const b of this._pakete()) {
+      const p = b * 3;
+      if (Math.abs(d.xpos[p] - SCAN.box[0]) < 0.17 && Math.abs(d.xpos[p + 1] - SCAN.box[1]) < 0.15
+          && d.xpos[p + 2] < 0.36) n++;
+    }
+    return n;
+  }
+
+  /* ---------- gemeinsame Steuerung ---------- */
+  _bereit() {
+    if (!this.ok) { this.status = 'nicht bereit'; return false; }
+    return true;
+  }
+
+  _neu(mode) {
+    this.stop(true);
+    this.mode = mode;
+    this.zaehler = 0;
+    this._seq = [];
+    this.phase = 'run';
+    if (this.e.paused) this.e.paused = false;
+  }
+
+  _abschluss(text) {
+    this._add({ t: 'call', fn: () => { this.status = 'zurück zur Home-Pose'; } },
+              { t: 'moveQ', q: HORST600_HOME.slice(), dur: 1.4 },
+              { t: 'call', fn: () => { this.phase = 'idle'; this.status = text; this._planer = null; } });
+  }
+
   goHome() {
     if (!this.ok) return;
     this.stop(true);
+    this.phase = 'run';
+    this._seq = [{ t: 'moveQ', q: HORST600_HOME.slice(), dur: 1.2 },
+                 { t: 'call', fn: () => { this.phase = 'idle'; this.status = 'Home-Pose'; } }];
     if (this.e.paused) this.e.paused = false;
-    this.status = 'fahre Home-Pose';
-    this._rampTo(HORST600_HOME.slice(), 1.4, 'done');
   }
 
   stop(silent) {
+    this.phase = 'idle';
+    this._seq = [];
+    this._planer = null;
+    this.ramp = null;
     this.e.onPreStep = null;
     this._bandDofs.length = 0;
-    this.phase = 'idle';
-    this._flip = null;
-    this.queue = [];
-    this.ramp = null;
     this.e.releaseBody?.();
     if (this.ok) for (const j of this.joints) this.e.data.ctrl[j.ctrl] = this.e.data.qpos[j.qadr];
     if (!silent) this.status = 'gestoppt';
   }
 
-  _rampTo(q, dur, nextPhase) {
-    this.ramp = { from: this.joints.map(j => this.e.data.ctrl[j.ctrl]), to: q, t: 0, dur: Math.max(0.25, dur / this.speed), next: nextPhase };
-    this.phase = 'ramp';
-  }
-
-  _ikOrSkip(target, dur, nextPhase) {
-    const q = this._solveSmart(target);
-    if (!q) { this.status = `„${this.target}" außer Reichweite – übersprungen`; this.e.releaseBody(); this.phase = 'next'; return; }
-    this._rampTo(q, dur, nextPhase);
+  /** Rampenfahrt auf Gelenkwinkel. */
+  _rampTo(q, dur) {
+    this.ramp = { from: this.joints.map(j => this.e.data.ctrl[j.ctrl]), to: q,
+                  t: 0, dur: Math.max(0.25, dur / this.speed), settle: 0 };
   }
 
   tick(dt) {
-    this._bandLauf(dt);
-    if (this.phase === 'idle' || !this.ok || !this.e.loaded) return;
+    if (!this.ok || !this.e.loaded) return;
+    if (this.mode === 'scan') this._bandLauf(dt);
+    if (this.phase !== 'run') return;
     const e = this.e;
 
-    if (this.phase === 'ramp') {
+    if (this.ramp) {                                  // laufende Fahrt bedienen
       const r = this.ramp;
       r.t += dt;
-      const s = Math.min(1, r.t / r.dur);
-      const k = s * s * (3 - 2 * s);                 // smoothstep
+      const s = Math.min(1, r.t / r.dur), k = s * s * (3 - 2 * s);
       for (let i = 0; i < 6; i++) e.data.ctrl[this.joints[i].ctrl] = r.from[i] + (r.to[i] - r.from[i]) * k;
       if (s >= 1) {
-        const errQ = Math.max(...this.joints.map((j, i) => Math.abs(e.data.qpos[j.qadr] - r.to[i])));
-        r.settle = (r.settle ?? 0) + dt;
-        if (errQ < 0.03 || r.settle > r.dur + 1.2) { this.phase = r.next; this.ramp = null; this.wait = SETTLE; }
+        r.settle += dt;
+        const err = Math.max(...this.joints.map((j, i) => Math.abs(e.data.qpos[j.qadr] - r.to[i])));
+        if (err < 0.03 || r.settle > 1.2) this.ramp = null;
       }
       return;
     }
     if (this.wait > 0) { this.wait -= dt; return; }
 
-    switch (this.phase) {
-      case 'next': {
-        e.releaseBody();
-        const name = this.queue.shift();
-        if (!name) { this.status = 'zurück zur Home-Pose'; this._rampTo(HORST600_HOME.slice(), 1.4, 'done'); return; }
-        const b = this._body(name);
-        if (b < 0) { this.phase = 'next'; return; }
-        this.target = name;
-        this.targetBody = b;
-        const p = b * 3, xp = e.data.xpos;
-        this.status = `fahre zu „${name}"`;
-        this._ikOrSkip([xp[p], xp[p + 1], HOVER_Z], 1.2, 'descend');
+    const s = this._seq.shift();
+    if (!s) { if (this._planer) this._planer(); else this.phase = 'idle'; return; }
+
+    switch (s.t) {
+      case 'move': {
+        const ziel = typeof s.to === 'function' ? s.to() : s.to;
+        const q = s.tilt ? this._solveTilt(ziel, s.tilt) : this._solveSmart(ziel);
+        if (!q) {                                     // unerreichbar: Teil überspringen
+          this.status = `„${this.zielName ?? '?'}" außer Reichweite – übersprungen`;
+          this.e.releaseBody();
+          this._seq = [];
+          this._add(this._hoch(HOVER_Z, 0.6), { t: 'call', fn: () => this._planer?.() });
+          return;
+        }
+        this._rampTo(q, s.dur ?? 1.0);
         return;
       }
-      case 'descend': {
-        const b = this._body(this.target);
-        if (b < 0) { this.phase = 'next'; return; }
-        const p = b * 3, xp = e.data.xpos;
-        this.status = `greife „${this.target}"`;
-        this._ikOrSkip([xp[p], xp[p + 1], xp[p + 2] + this._topHalf(b) + 0.010], 0.8, 'grab');
-        return;
-      }
+      case 'moveQ': this._rampTo(s.q, s.dur ?? 1.2); return;
       case 'grab': {
-        const b = this._body(this.target);
-        this.targetKey = b > 0 ? this._classify(b) : 'rest';
+        const b = s.body();
         if (b > 0) e.attachBody(b, this.siteId);
-        this.status = `hebe „${this.target}"`;
-        const s3 = this.siteId * 3;
-        this._ikOrSkip([e.data.site_xpos[s3], e.data.site_xpos[s3 + 1], HOVER_Z], 0.7, 'toPad');
         return;
       }
-      case 'toPad': {
-        const key = this.targetKey ?? 'rest';
-        const pad = ZIEL[key];
-        const n = this.dropCount[key]++;
-        // Weiter gestreutes 3×3-Raster: sonst stoßen sich die Teile auf dem
-        // kleinen Feld gegenseitig wieder herunter (gemessen an Rest-Ablagen).
-        // Streuung an die Feldgröße koppeln: bei der kleineren Kugelwanne
-        // landeten die Teile sonst auf deren Rand und sprangen wieder heraus.
-        const sx = key === 'kugel' ? 0.030 : 0.058;
-        const sy = key === 'kugel' ? 0.026 : 0.050;
-        const off = [(n % 3) * sx - sx, (Math.floor(n / 3) % 3) * sy - sy];
-        // Fallhöhe aus der Objektgröße: knapp über der Auflage loslassen statt
-        // aus 3–4 cm fallen zu lassen (Hüpfer trieben die Teile vom Feld).
-        const b = this._body(this.target);
-        const z = 0.379 + (b > 0 ? this._topHalf(b) : 0.024) + 0.030;   // über dem Feldrand freikommen
-        this.status = 'lege ab: ' + key;
-        this._ikOrSkip([pad[0] + off[0], pad[1] + off[1], z], 1.3, 'release');
-        return;
-      }
-      case 'release': {
-        e.releaseBody();
-        this.status = `„${this.target}" abgelegt`;
-        this.wait = 0.45;                            // kurz stehen bleiben, damit das Teil zur Ruhe kommt
-        this.phase = 'next';
-        return;
-      }
-      case 'scanNext': {
-        e.releaseBody();
-        this._flip = null;
-        const b = this._paketInZone();
-        if (b < 0) { this.status = `warte auf Nachschub · ${this.scanCount} auf dem Band`; this.wait = 0.35; return; }
-        this.targetBody = b;
-        this.target = e.bodyName(b);
-        const p = b * 3, xp = e.data.xpos;
-        this.status = `fahre zu „${this.target}"`;
-        this._ikOrSkip([xp[p], xp[p + 1], HOVER_Z], 1.1, 'scanDescend');
-        return;
-      }
-      case 'scanDescend': {
-        const b = this._body(this.target);
-        if (b < 0) { this.phase = 'scanNext'; return; }
-        const p = b * 3, xp = e.data.xpos;
-        this.status = `greife „${this.target}"`;
-        this._ikOrSkip([xp[p], xp[p + 1], xp[p + 2] + this._topHalf(b) + 0.006], 0.7, 'scanGrab');
-        return;
-      }
-      case 'scanGrab': {
-        const b = this._body(this.target);
-        if (b < 0) { this.phase = 'scanNext'; return; }
-        this._etikettWarOben = this._etikettOben(b);
-        e.attachBody(b, this.siteId);
-        this.status = this._etikettWarOben
-          ? 'Etikett oben ✓ – direkt aufs Band'
-          : 'Etikett unten – Paket wird gewendet';
-        const s3 = this.siteId * 3;
-        this._ikOrSkip([e.data.site_xpos[s3], e.data.site_xpos[s3 + 1], HOVER_Z], 0.7, 'scanPruefen');
-        return;
-      }
-      case 'scanPruefen': {
-        if (this._etikettWarOben) { this.phase = 'scanZumBand'; return; }
-        if (!e.attachInfo) { this.phase = 'scanNext'; return; }
-        this._flip = { t: 0, dur: 1.0 / this.speed, q0: e.attachInfo.relq.slice() };
-        this.flipCount++;
-        this.phase = 'scanWenden';
-        return;
-      }
-      case 'scanWenden': {
-        const f = this._flip;
-        if (!f || !e.attachInfo) { this.phase = 'scanZumBand'; return; }
-        f.t += dt;
-        const s = Math.min(1, f.t / f.dur);
-        const a = Math.PI * (s * s * (3 - 2 * s));      // Wendeeinheit dreht um die Greifer-Y-Achse
-        e.attachInfo.relq = qMul([Math.cos(a / 2), 0, Math.sin(a / 2), 0], f.q0);
-        const stufe = Math.round(s * 12) * 15;
-        this.status = `wende „${this.target}" · ${stufe}°`;
-        if (s >= 1) { this._flip = null; this.phase = 'scanZumBand'; }
-        return;
-      }
-      case 'scanZumBand': {
-        this.status = `lege „${this.target}" aufs Förderband`;
-        this._ikOrSkip([SCAN.bandZiel[0], SCAN.bandZiel[1], SCAN.bandZ], 1.2, 'scanAbgeben');
-        return;
-      }
-      case 'scanAbgeben': {
-        e.releaseBody();
-        this.scanCount++;
-        this.status = `${this.scanCount} Pakete auf dem Band · ${this.flipCount}× gewendet`;
-        this.wait = 0.3;
-        this.phase = 'scanNext';
-        return;
-      }
-      case 'done': {
-        this.phase = 'idle';
-        this.status = 'fertig ✓';
-        return;
-      }
+      case 'release': e.releaseBody(); return;
+      case 'wait': this.wait = s.s / this.speed; return;
+      case 'call': s.fn(); return;
     }
   }
 }

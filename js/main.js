@@ -17,6 +17,7 @@ let engine, renderer, wizard;
 let selectedBody = -1, tracking = false;
 let copiedName = null, pasteCount = 0;
 let pick = null;
+let aktiveSzene = null;
 let recorder = null, recChunks = [];
 let fps = 0, frames = 0, fpsT0 = performance.now();
 
@@ -62,6 +63,7 @@ let fps = 0, frames = 0, fpsT0 = performance.now();
 async function loadScene(entry) {
   let xml = entry.make ? entry.make() : (globalThis.__HORST_FILES?.[entry.url] ?? await (await fetch(entry.url)).text());
   loadXML(xml, entry.name);
+  aktiveSzene = entry.id ?? null;              // für den Programmstart: passende Zelle erkennen
 }
 
 function loadXML(xml, sourceName = '') {
@@ -90,7 +92,7 @@ function onModelLoaded() {
   buildSceneTree();
   selectBody(-1);
   pick.configure();
-  for (const id of ['pickRotBtn', 'pickBlauBtn', 'pickKugelBtn', 'pickAlleBtn', 'scanStartBtn'])
+  for (const id of ['palRotBtn', 'palBlauBtn', 'sortRotBtn', 'sortBlauBtn', 'sortAlleBtn', 'scanStartBtn'])
     $('#' + id).disabled = !pick.ok;
   buildJog();
   syncPhysicsInputs();
@@ -180,11 +182,12 @@ function buildStaticPanels() {
   // Visualisierung
   $$('#panelVis [data-vis]').forEach(inp => inp.onchange = applyVisInputs);
   $('#visFrame').onchange = applyVisInputs;
-  $('#pickRotBtn').onclick = () => pick.start('rot');
-  $('#pickBlauBtn').onclick = () => pick.start('blau');
-  $('#pickKugelBtn').onclick = () => pick.start('kugel');
-  $('#pickAlleBtn').onclick = () => pick.start('alle');
-  $('#pickStopBtn').onclick = () => pick.stop();
+  $('#palRotBtn').onclick = () => programmStart('palettieren', p => p.startPalettieren('rot'));
+  $('#palBlauBtn').onclick = () => programmStart('palettieren', p => p.startPalettieren('blau'));
+  $('#sortRotBtn').onclick = () => programmStart('kugelsort', p => p.startKugeln('rot'));
+  $('#sortBlauBtn').onclick = () => programmStart('kugelsort', p => p.startKugeln('blau'));
+  $('#sortAlleBtn').onclick = () => programmStart('kugelsort', p => p.startKugeln('alle'));
+  $('#pickStopBtn').onclick = () => { pick.stop(); setMinimal(false); };
   $('#pickSpeed').oninput = () => {
     const v = +$('#pickSpeed').value;
     if (pick) pick.speed = v;
@@ -192,8 +195,7 @@ function buildStaticPanels() {
   };
   $('#spawnBtn').onclick = () => spawnParts();
   $('#clearBtn').onclick = () => clearLooseParts();
-  $('#scanStartBtn').onclick = () => startScanmutti();
-  $('#scanSceneBtn').onclick = () => ladeScanmuttiZelle();
+  $('#scanStartBtn').onclick = () => programmStart('scanmutti', p => p.startScan());
   initShell();
   initJog();
   $('#dupBtn').onclick = () => duplicateSelected();
@@ -389,19 +391,19 @@ function refreshJog() {
 }
 
 /* ---------- Scanmutti ---------- */
-async function ladeScanmuttiZelle() {
-  const eintrag = SCENES.find(s => s.id === 'scanmutti');
-  if (!eintrag) return false;
-  await loadScene(eintrag);
-  $('#sceneSelect').value = String(SCENES.indexOf(eintrag));
-  return true;
-}
-
-async function startScanmutti() {
-  const hatPakete = engine.loaded &&
-    [...Array(engine.model.nbody).keys()].some(i => (engine.bodyName(i) || '').startsWith('paket'));
-  if (!hatPakete) await ladeScanmuttiZelle();
-  pick.startScan();
+/**
+ * Startet ein Programm: lädt bei Bedarf zuerst die passende Zelle und
+ * minimiert die Bedienoberfläche, damit man dem Roboter zusehen kann.
+ */
+async function programmStart(szeneId, starter) {
+  const eintrag = SCENES.find(s => s.id === szeneId);
+  if (eintrag && aktiveSzene !== szeneId) {
+    await loadScene(eintrag);
+    $('#sceneSelect').value = String(SCENES.indexOf(eintrag));
+  }
+  if (!pick?.ok) { toast('Kein Roboter in der Szene.', true); return; }
+  starter(pick);
+  setMinimal(true);
 }
 
 function togglePause() {
