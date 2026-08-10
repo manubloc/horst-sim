@@ -16,9 +16,14 @@
 
 import { HORST600_HOME } from './scenes.js';
 
-const PAD = { rot: [0.10, 0.245], blau: [0.10, -0.245] };
+const ZIEL = {
+  rot:   [0.10, 0.32],
+  blau:  [0.10, -0.32],
+  kugel: [0.30, 0.22],   // vorhandene Ablage-Wanne fängt rollende Kugeln
+  rest:  [0.40, -0.28],
+};
 const HOVER_Z = 0.535;      // sichere Anfahrhöhe (Welt)
-const DROP_Z = 0.50;        // Abwurfhöhe über dem Pad
+const DROP_Z = 0.445;
 const SETTLE = 0.12;        // s Nachlauf je Phase
 
 export class PickController {
@@ -27,10 +32,11 @@ export class PickController {
     this.phase = 'idle';
     this.status = 'bereit';
     this.queue = [];
-    this.color = null;
+    this.mode = null;
     this.ramp = null;
     this.wait = 0;
-    this.dropCount = { rot: 0, blau: 0 };
+    this.dropCount = { rot: 0, blau: 0, kugel: 0, rest: 0 };
+    this.speed = 1;
     this.ok = false;
   }
 
@@ -65,6 +71,30 @@ export class PickController {
 
   q() { return this.joints.map(j => this.e.data.qpos[j.qadr]); }
 
+  /** Sorte eines freien Objekts: rot / blau (Name), kugel (Geometrie), sonst rest. */
+  _classify(bodyId) {
+    const e = this.e, n = e.bodyName(bodyId) || '';
+    if (n.includes('_rot')) return 'rot';
+    if (n.includes('_blau')) return 'blau';
+    const g = e.model.body_geomadr[bodyId];
+    const SPH = e.mujoco.mjtGeom?.mjGEOM_SPHERE?.value ?? 2;
+    if (g >= 0 && e.model.geom_type[g] === SPH) return 'kugel';
+    return 'rest';
+  }
+
+  /** Halbe Hoehe des ersten Geoms (fuer die Greifhoehe ueber der Oberkante). */
+  _topHalf(bodyId) {
+    const md = this.e.model, g = md.body_geomadr[bodyId];
+    if (g < 0) return 0.022;
+    const t = md.geom_type[g], s = md.geom_size;
+    const gt = this.e.mujoco.mjtGeom ?? {};
+    const SPH = gt.mjGEOM_SPHERE?.value ?? 2, CAP = gt.mjGEOM_CAPSULE?.value ?? 3, CYL = gt.mjGEOM_CYLINDER?.value ?? 5;
+    if (t === SPH) return s[3 * g];
+    if (t === CYL) return s[3 * g + 1];
+    if (t === CAP) return s[3 * g] + s[3 * g + 1];
+    return s[3 * g + 2];
+  }
+
   /* ---------- IK ---------- */
   _fk(ik, q) {
     const e = this.e;
@@ -78,17 +108,30 @@ export class PickController {
     };
   }
 
-  _err(f, target) {
+  _err(f, target, soll = [0, 0, -1]) {
     // Richtungs-Residuum (soll − ax): überall linear, kein Null-Gradient
     // bei 90°-Abweichung (cross-Fehler versagt dort, a_x ändert nur quadratisch).
-    const w = 0.35;
+    const w = this._wCur ?? 0.35;
     return [
       target[0] - f.p[0], target[1] - f.p[1], target[2] - f.p[2],
-      (0 - f.ax[0]) * w, (0 - f.ax[1]) * w, (-1 - f.ax[2]) * w,
+      (soll[0] - f.ax[0]) * w, (soll[1] - f.ax[1]) * w, (soll[2] - f.ax[2]) * w,
     ];
   }
 
-  solveIK(target, q0) {
+  solveIK(target, q0, tiltDeg = 0) {
+    // tiltDeg > 0: Werkzeug radial vom Fuß weg neigen – der Roboter
+    // "streckt sich" und erreicht ~6–8 cm weiter entfernte Ziele.
+    const b3s = this.baseId * 3, xps = this.e.data.xpos;
+    const phi = Math.atan2(target[1] - xps[b3s + 1], target[0] - xps[b3s]);
+    const t = tiltDeg * Math.PI / 180;
+    const soll = [Math.sin(t) * Math.cos(phi), Math.sin(t) * Math.sin(phi), -Math.cos(t)];
+    // Stufe 1: Werkzeug senkrecht. Stufe 2 (Fallback): Neigung zulassen,
+    // damit auch weit außen liegende Teile erreichbar bleiben (Vakuum hält schräg).
+    return this._solve(target, q0, 0.35, true, soll) ?? this._solve(target, q0, 0.10, false, soll);
+  }
+
+  _solve(target, q0, oriW, needOri, soll = [0, 0, -1]) {
+    this._wCur = oriW;
     const e = this.e;
     const ik = e._ikData;
     if (!ik) return null;
@@ -96,15 +139,15 @@ export class PickController {
     const h = 1e-3, lam = 0.03;
     for (let iter = 0; iter < 90; iter++) {
       const f0 = this._fk(ik, q);
-      const err = this._err(f0, target);
+      const err = this._err(f0, target, soll);
       const epos = Math.hypot(err[0], err[1], err[2]);
       const eori = Math.hypot(err[3], err[4], err[5]);
-      if (epos < 0.0015 && eori < 0.02) return q;
+      if (epos < 0.0015 && (!needOri || eori < 0.02)) return q;
       const J = [];
       for (let k = 0; k < 6; k++) {
         const qk = q.slice(); qk[k] += h;
         const fk = this._fk(ik, qk);
-        const ek = this._err(fk, target);
+        const ek = this._err(fk, target, soll);
         J.push(err.map((v, r) => (v - ek[r]) / h));   // ∂e/∂q  (Spalte k)
       }
       // Damped Least Squares: (JᵀJ + λI)·dq = Jᵀ·e
@@ -129,31 +172,43 @@ export class PickController {
       }
     }
     const f = this._fk(ik, q);
-    const err = this._err(f, target);
-    return Math.hypot(err[0], err[1], err[2]) < 0.004 ? q : null;
+    const err = this._err(f, target, soll);
+    return !needOri && Math.hypot(err[0], err[1], err[2]) < 0.004 ? q : null;
+  }
+
+  /** IK mit Rückfallstufen gegen lokale Minima und Reichweitengrenze. */
+  _solveSmart(target) {
+    return this.solveIK(target)
+        ?? this.solveIK(target, HORST600_HOME.slice())
+        ?? this.solveIK(target, undefined, 26)
+        ?? this.solveIK(target, HORST600_HOME.slice(), 26);
   }
 
   /* ---------- Sequenz ---------- */
-  start(color) {
+  start(mode) {
     if (!this.ok) { this.status = 'nicht bereit'; return; }
     const e = this.e;
+    const FREE = e.mujoco.mjtJoint?.mjJNT_FREE?.value ?? 0;
     this.queue = [];
     for (let i = 1; i < e.model.nbody; i++) {
-      const n = e.bodyName(i) || '';
-      if (!n.includes('_' + color)) continue;
       if (e.model.body_jntnum[i] !== 1) continue;
       const j = e.model.body_jntadr[i];
-      if (e.model.jnt_type[j] !== (e.mujoco.mjtJoint?.mjJNT_FREE?.value ?? 0)) continue;
-      this.queue.push(n);
+      if (e.model.jnt_type[j] !== FREE) continue;
+      const key = this._classify(i);
+      if (mode !== 'alle' && key !== mode) continue;
+      this.queue.push(e.bodyName(i));
     }
-    if (!this.queue.length) { this.status = `keine ${color}en Teile gefunden`; return; }
-    // nahe Teile zuerst
-    const b3 = this.baseId * 3, xp = e.data.xpos;
-    this.queue.sort((a, b) => this._dist(a) - this._dist(b));
-    this.color = color;
-    this.dropCount[color] = 0;
+    if (!this.queue.length) { this.status = 'keine passenden Teile gefunden'; return; }
+    // sortiert: erst Sorten in fester Reihenfolge, innerhalb nahe Teile zuerst
+    const order = { rot: 0, blau: 1, kugel: 2, rest: 3 };
+    this.queue.sort((a, b) => {
+      const ka = order[this._classify(this._body(a))], kb = order[this._classify(this._body(b))];
+      return ka !== kb ? ka - kb : this._dist(a) - this._dist(b);
+    });
+    this.mode = mode;
+    this.dropCount = { rot: 0, blau: 0, kugel: 0, rest: 0 };
     this.phase = 'next';
-    this.status = `${this.queue.length} ${color}e Teile …`;
+    this.status = this.queue.length + ' Teile ...';
     if (e.paused) e.paused = false;
   }
 
@@ -179,12 +234,12 @@ export class PickController {
   }
 
   _rampTo(q, dur, nextPhase) {
-    this.ramp = { from: this.joints.map(j => this.e.data.ctrl[j.ctrl]), to: q, t: 0, dur, next: nextPhase };
+    this.ramp = { from: this.joints.map(j => this.e.data.ctrl[j.ctrl]), to: q, t: 0, dur: Math.max(0.25, dur / this.speed), next: nextPhase };
     this.phase = 'ramp';
   }
 
   _ikOrSkip(target, dur, nextPhase) {
-    const q = this.solveIK(target);
+    const q = this._solveSmart(target);
     if (!q) { this.status = `„${this.target}" außer Reichweite – übersprungen`; this.e.releaseBody(); this.phase = 'next'; return; }
     this._rampTo(q, dur, nextPhase);
   }
@@ -227,11 +282,12 @@ export class PickController {
         if (b < 0) { this.phase = 'next'; return; }
         const p = b * 3, xp = e.data.xpos;
         this.status = `greife „${this.target}"`;
-        this._ikOrSkip([xp[p], xp[p + 1], xp[p + 2] + 0.033], 0.8, 'grab');
+        this._ikOrSkip([xp[p], xp[p + 1], xp[p + 2] + this._topHalf(b) + 0.010], 0.8, 'grab');
         return;
       }
       case 'grab': {
         const b = this._body(this.target);
+        this.targetKey = b > 0 ? this._classify(b) : 'rest';
         if (b > 0) e.attachBody(b, this.siteId);
         this.status = `hebe „${this.target}"`;
         const s3 = this.siteId * 3;
@@ -239,10 +295,11 @@ export class PickController {
         return;
       }
       case 'toPad': {
-        const pad = PAD[this.color];
-        const n = this.dropCount[this.color]++;
-        const off = [(n % 2) * 0.045 - 0.02, ((n >> 1) % 2) * 0.04 - 0.02];
-        this.status = `lege auf Pad ${this.color}`;
+        const key = this.targetKey ?? 'rest';
+        const pad = ZIEL[key];
+        const n = this.dropCount[key]++;
+        const off = [(n % 3) * 0.035 - 0.035, (Math.floor(n / 3) % 3) * 0.03 - 0.03];
+        this.status = 'lege ab: ' + key;
         this._ikOrSkip([pad[0] + off[0], pad[1] + off[1], DROP_Z], 1.3, 'release');
         return;
       }

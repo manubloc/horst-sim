@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>horstSIM · Simulation</title>
+<title>horstOS · Simulation</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/app.css">
@@ -49,7 +49,7 @@
 
 <!-- Kopfzeile -->
 <header class="topbar">
-  <h1>horst<span>SIM</span></h1>
+  <h1>horst<span>OS</span></h1>
   <p class="crumb">Simulation · MuJoCo-Physik in Echtzeit</p>
   <div class="chips">
     <span class="chip" id="modelstats">–</span>
@@ -66,6 +66,7 @@
 
     <!-- Transportleiste -->
     <div class="transport">
+        <button id="transToggle" class="tbtn" title="Leiste minimieren">⌄</button>
       <button id="playBtn" class="tbtn big" title="Pause (Leertaste)">&#10074;&#10074;</button>
       <button id="stepBtn" class="tbtn" title="Einzelschritt (S)">&#8618;</button>
       <button id="resetBtn" class="tbtn" title="Zurücksetzen (R)">&#8635;</button>
@@ -88,9 +89,13 @@
     <div class="panel" id="panelPick">
       <h3>Pick &amp; Place</h3>
       <div class="pbody">
+        <label class="rowlab">Tempo <span id="pickSpeedVal">×1.0</span></label>
+        <input id="pickSpeed" type="range" min="0.5" max="3" step="0.1" value="1">
         <div class="btnrow">
           <button id="pickRotBtn" class="btn pick red" disabled>Rote greifen</button>
           <button id="pickBlauBtn" class="btn pick blue" disabled>Blaue greifen</button>
+          <button id="pickKugelBtn" class="btn pick teal" disabled>Kugeln greifen</button>
+          <button id="pickAlleBtn" class="btn pick all" disabled>Alles sortieren</button>
           <button id="pickStopBtn" class="btn ghost">Stopp</button>
         </div>
         <div class="kv"><span>Status</span><b id="pickStatus">bereit</b></div>
@@ -132,6 +137,20 @@
     <div class="panel" id="panelAkt">
       <h3>Achsen &amp; Aktoren</h3>
       <div class="pbody" id="actList"></div>
+    </div>
+
+    <div class="panel" id="panelSpawn">
+      <h3>Teile-Spawner</h3>
+      <div class="pbody">
+        <div class="spawngrid">
+          <label for="spawnRot">Rote Kisten</label><input id="spawnRot" class="input" type="number" min="0" max="15" value="3">
+          <label for="spawnBlau">Blaue Kisten</label><input id="spawnBlau" class="input" type="number" min="0" max="15" value="3">
+          <label for="spawnKugel">Kugeln</label><input id="spawnKugel" class="input" type="number" min="0" max="15" value="4">
+          <label for="spawnWuerfel">Würfel</label><input id="spawnWuerfel" class="input" type="number" min="0" max="15" value="2">
+        </div>
+        <button id="spawnBtn" class="btn primary">Teile abwerfen</button>
+        <button id="clearBtn" class="btn ghost">Alle losen Teile entfernen</button>
+      </div>
     </div>
 
     <div class="panel" id="panelPhysik">
@@ -247,7 +266,7 @@
 <div id="loading" class="loading">
   <div class="load-card">
     <div class="spin"></div>
-    <h2>horstSIM startet</h2>
+    <h2>horstOS startet</h2>
     <p>MuJoCo-Physik-Engine (WebAssembly) wird geladen …</p>
     <div id="bootlog" class="bootlog" style="margin-top:10px;font:500 12px/1.6 ui-monospace,monospace;color:#9fd8d5;max-width:420px;text-align:left"></div>
   </div>

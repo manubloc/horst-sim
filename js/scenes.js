@@ -162,17 +162,39 @@ export function sceneHorstCell() {
     </body>`).join('');
   const world = `
     <body name="tisch" pos="0.18 0 0">
-      <geom type="box" size="0.42 0.30 0.018" pos="0 0 0.352" rgba="0.20 0.22 0.23 1"/>
-      <geom type="box" size="0.02 0.02 0.176" pos="0.39 0.27 0.176" rgba="0.12 0.13 0.14 1"/>
-      <geom type="box" size="0.02 0.02 0.176" pos="0.39 -0.27 0.176" rgba="0.12 0.13 0.14 1"/>
-      <geom type="box" size="0.02 0.02 0.176" pos="-0.39 0.27 0.176" rgba="0.12 0.13 0.14 1"/>
-      <geom type="box" size="0.02 0.02 0.176" pos="-0.39 -0.27 0.176" rgba="0.12 0.13 0.14 1"/>
+      <geom type="box" size="0.54 0.42 0.018" pos="0 0 0.352" rgba="0.20 0.22 0.23 1"/>
+      <!-- umlaufender Rand: 16 mm hoch, hält Kugeln auf dem Tisch -->
+      <geom type="box" size="0.54 0.008 0.008"  pos="0 0.412 0.378"  rgba="0.30 0.33 0.35 1"/>
+      <geom type="box" size="0.54 0.008 0.008"  pos="0 -0.412 0.378" rgba="0.30 0.33 0.35 1"/>
+      <geom type="box" size="0.008 0.404 0.008" pos="0.532 0 0.378"  rgba="0.30 0.33 0.35 1"/>
+      <geom type="box" size="0.008 0.404 0.008" pos="-0.532 0 0.378" rgba="0.30 0.33 0.35 1"/>
+      <geom type="box" size="0.02 0.02 0.176" pos="0.51 0.39 0.176"   rgba="0.12 0.13 0.14 1"/>
+      <geom type="box" size="0.02 0.02 0.176" pos="0.51 -0.39 0.176"  rgba="0.12 0.13 0.14 1"/>
+      <geom type="box" size="0.02 0.02 0.176" pos="-0.51 0.39 0.176"  rgba="0.12 0.13 0.14 1"/>
+      <geom type="box" size="0.02 0.02 0.176" pos="-0.51 -0.39 0.176" rgba="0.12 0.13 0.14 1"/>
     </body>
-    <body name="pad_rot" pos="0.10 0.245 0.373">
+    <body name="pad_rest" pos="0.40 -0.28 0.373">
+      <geom type="box" size="0.06 0.05 0.003" rgba="0.52 0.52 0.58 0.6"/>
+    </body>
+    <body name="pad_rot" pos="0.10 0.32 0.373">
       <geom type="box" size="0.06 0.05 0.003" rgba="0.85 0.20 0.18 0.6"/>
     </body>
-    <body name="pad_blau" pos="0.10 -0.245 0.373">
+    <body name="pad_blau" pos="0.10 -0.32 0.373">
       <geom type="box" size="0.06 0.05 0.003" rgba="0.18 0.38 0.9 0.6"/>
+    </body>
+    <body name="wanne_kugel" pos="0.40 0.28 0.373">
+      <geom type="box" size="0.07 0.06 0.003" rgba="0.35 1 0.98 0.35"/>
+      <geom type="box" size="0.006 0.06 0.015" pos="0.064 0 0.018"  rgba="0.35 1 0.98 0.35"/>
+      <geom type="box" size="0.006 0.06 0.015" pos="-0.064 0 0.018" rgba="0.35 1 0.98 0.35"/>
+      <geom type="box" size="0.058 0.006 0.015" pos="0 0.054 0.018"  rgba="0.35 1 0.98 0.35"/>
+      <geom type="box" size="0.058 0.006 0.015" pos="0 -0.054 0.018" rgba="0.35 1 0.98 0.35"/>
+    </body>
+    <body name="wanne_rest" pos="0.40 -0.28 0.373">
+      <geom type="box" size="0.07 0.06 0.003" rgba="0.63 0.63 0.69 0.35"/>
+      <geom type="box" size="0.006 0.06 0.015" pos="0.064 0 0.018"  rgba="0.63 0.63 0.69 0.35"/>
+      <geom type="box" size="0.006 0.06 0.015" pos="-0.064 0 0.018" rgba="0.63 0.63 0.69 0.35"/>
+      <geom type="box" size="0.058 0.006 0.015" pos="0 0.054 0.018"  rgba="0.63 0.63 0.69 0.35"/>
+      <geom type="box" size="0.058 0.006 0.015" pos="0 -0.054 0.018" rgba="0.63 0.63 0.69 0.35"/>
     </body>
     <body name="ablage" pos="0.30 0.22 0.372">
       <geom type="box" size="0.07 0.07 0.002" pos="0 0 0" rgba="0.05 0.35 0.36 1"/>

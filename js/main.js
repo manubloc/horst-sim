@@ -40,6 +40,9 @@ let fps = 0, frames = 0, fpsT0 = performance.now();
   }
   renderer = new SceneRenderer($('#viewport'));
   pick = new PickController(engine);
+  globalThis.horst = { engine, pick };              // Debug-Zugriff (Konsole/Tests)
+  addEventListener('error', ev => toast('Fehler: ' + (ev.message || 'siehe Konsole'), true));
+  addEventListener('unhandledrejection', () => toast('Fehler: unbehandelte Promise-Ablehnung', true));
   engine.onReload = onModelLoaded;
   attachInteraction(renderer.canvas, engine, { onSelect: onBodySelected });
 
@@ -87,8 +90,7 @@ function onModelLoaded() {
   buildSceneTree();
   selectBody(-1);
   pick.configure();
-  $('#pickRotBtn').disabled = !pick.ok;
-  $('#pickBlauBtn').disabled = !pick.ok;
+  for (const id of ['pickRotBtn', 'pickBlauBtn', 'pickKugelBtn', 'pickAlleBtn']) $('#' + id).disabled = !pick.ok;
   syncPhysicsInputs();
   syncVisInputs();
   const m = engine.model;
@@ -177,7 +179,24 @@ function buildStaticPanels() {
   $('#visFrame').onchange = applyVisInputs;
   $('#pickRotBtn').onclick = () => pick.start('rot');
   $('#pickBlauBtn').onclick = () => pick.start('blau');
+  $('#pickKugelBtn').onclick = () => pick.start('kugel');
+  $('#pickAlleBtn').onclick = () => pick.start('alle');
   $('#pickStopBtn').onclick = () => pick.stop();
+  $('#pickSpeed').oninput = () => {
+    const v = +$('#pickSpeed').value;
+    if (pick) pick.speed = v;
+    $('#pickSpeedVal').textContent = '×' + v.toFixed(1);
+  };
+  $('#spawnBtn').onclick = () => spawnParts();
+  $('#clearBtn').onclick = () => clearLooseParts();
+  $('#transToggle').onclick = () => {
+    const t = document.querySelector('.transport');
+    const min = t.classList.toggle('min');
+    const b = $('#transToggle');
+    b.textContent = min ? '⌃' : '⌄';
+    b.title = min ? 'Leiste ausklappen' : 'Leiste minimieren';
+  };
+  if (matchMedia('(max-width: 940px)').matches) $('#transToggle').onclick();
   $('#dupBtn').onclick = () => duplicateSelected();
   $('#delBtn').onclick = () => deleteSelected();
   $('#focusBtn').onclick = () => {
@@ -197,7 +216,7 @@ function buildStaticPanels() {
   $('#xmlDownload').onclick = () => {
     const blob = new Blob([$('#xmleditor').value], { type: 'application/xml' });
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = 'horstSIM_szene.xml'; a.click();
+    a.href = URL.createObjectURL(blob); a.download = 'horstOS_szene.xml'; a.click();
     URL.revokeObjectURL(a.href);
   };
   $('#xmleditor').addEventListener('keydown', e => {
@@ -461,6 +480,62 @@ function loadXMLKeepState(xml, qposArr) {
 function bodyIdByName(name) {
   for (let i = 0; i < engine.model.nbody; i++) if (engine.bodyName(i) === name) return i;
   return -1;
+}
+
+/** Teile-Spawner: erzeugt Teile aus den Vorlagen in Fallhoehe ueber dem Tisch. */
+function clearLooseParts() {
+  if (!engine.loaded) return;
+  if (pick && pick.phase !== 'idle') pick.stop();
+  const md = engine.model;
+  const loose = [];
+  for (let i = 1; i < md.nbody; i++) {
+    if (!isFreeBody(i)) continue;
+    loose.push({ name: engine.bodyName(i), qadr: md.jnt_qposadr[md.body_jntadr[i]] });
+  }
+  if (!loose.length) { toast('Keine losen Teile in der Szene.', true); return; }
+  loose.sort((a, b) => b.qadr - a.qadr);            // von hinten löschen → vordere Adressen bleiben gültig
+  let xml = engine.xml;
+  const q = Array.from(engine.data.qpos);
+  try {
+    for (const o of loose) { xml = removeFreeBody(xml, o.name, o.qadr); q.splice(o.qadr, 7); }
+  } catch (e) { toast('Entfernen: ' + e.message, true); return; }
+  copiedName = null;
+  if (!loadXMLKeepState(xml, q)) return;
+  selectBody(-1);
+  toast(loose.length + ' Teile entfernt');
+}
+
+function spawnParts() {
+  if (!engine.loaded) return;
+  const want = [['spawnRot', 'kiste_rot_1'], ['spawnBlau', 'kiste_blau_1'], ['spawnKugel', 'kugel'], ['spawnWuerfel', 'fallwuerfel_1']];
+  let xml = engine.xml;
+  const q = Array.from(engine.data.qpos);
+  let total = 0, made = 0;
+  for (const [id, tpl] of want) {
+    const n = Math.max(0, Math.min(15, Math.round(+$('#' + id).value || 0)));
+    for (let i = 0; i < n && total < 30; i++, total++) {
+      const ang = Math.random() * Math.PI * 2, r = 0.16 + Math.random() * 0.40;
+      const pos = [
+        Math.max(-0.26, Math.min(0.62, Math.cos(ang) * r + 0.18)),
+        Math.max(-0.34, Math.min(0.34, Math.sin(ang) * r * 0.8)),
+        0.95 + Math.random() * 0.5,
+      ];
+      let quat = [Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1];
+      const nq = Math.hypot(...quat) || 1;
+      quat = quat.map(x => x / nq);
+      if (quat[0] < 0) quat = quat.map(x => -x);
+      let res;
+      try { res = duplicateFreeBody(xml, tpl, { pos, quat }); }
+      catch (e) { toast('Spawner: ' + e.message, true); return; }
+      xml = res.xml;
+      q.push(...pos, ...quat);
+      made++;
+    }
+  }
+  if (!made) { toast('Stückzahlen wählen.', true); return; }
+  if (!loadXMLKeepState(xml, q)) return;
+  toast(made + ' Teile abgeworfen');
+  if (engine.paused) engine.paused = false;
 }
 
 function duplicateSelected(srcName) {
