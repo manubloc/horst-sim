@@ -148,11 +148,16 @@ export class SimEngine {
   listActuators() {
     const out = [];
     if (!this.loaded) return out;
-    const cr = this.model.actuator_ctrlrange, lim = this.model.actuator_ctrllimited;
+    // Binding-Bug-Umgehung: bool-Properties (z. B. actuator_ctrllimited) sind als
+    // nicht registrierter memory_view<bool> gebunden und werfen beim Zugriff.
+    // "limited" wird deshalb aus der ctrlrange abgeleitet (lo < hi).
+    const mj = this.mujoco, cr = this.model.actuator_ctrlrange;
     for (let i = 0; i < this.model.nu; i++) {
+      const lo = cr[2 * i], hi = cr[2 * i + 1];
+      const limited = lo < hi;
       out.push({
-        i, name: this.model.actuator(i).name || `Aktor ${i + 1}`,
-        min: lim[i] ? cr[2 * i] : -1, max: lim[i] ? cr[2 * i + 1] : 1,
+        i, name: mj.mj_id2name(this.model, mj.mjtObj.mjOBJ_ACTUATOR.value, i) || `Aktor ${i + 1}`,
+        min: limited ? lo : -1, max: limited ? hi : 1,
         value: this.data.ctrl[i],
       });
     }
@@ -162,9 +167,12 @@ export class SimEngine {
   listJoints() {
     const out = [];
     if (!this.loaded) return out;
+    const mj = this.mujoco;
     for (let i = 0; i < this.model.njnt; i++) {
-      const j = this.model.joint(i);
-      out.push({ i, name: j.name || `Gelenk ${i + 1}`, type: this.model.jnt_type[i], qadr: this.model.jnt_qposadr[i] });
+      out.push({
+        i, name: mj.mj_id2name(this.model, mj.mjtObj.mjOBJ_JOINT.value, i) || `Gelenk ${i + 1}`,
+        type: this.model.jnt_type[i], qadr: this.model.jnt_qposadr[i],
+      });
     }
     return out;
   }
