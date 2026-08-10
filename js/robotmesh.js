@@ -48,7 +48,12 @@ export class RobotMeshManager {
   }
 
   _load(url) {
-    if (!this._gltfPromise) this._gltfPromise = new GLTFLoader().loadAsync(url);
+    if (!this._gltfPromise) {
+      const loader = new GLTFLoader();
+      this._gltfPromise = globalThis.__HORST_GLB
+        ? loader.parseAsync(globalThis.__HORST_GLB, '')
+        : loader.loadAsync(url);
+    }
     return this._gltfPromise;
   }
 

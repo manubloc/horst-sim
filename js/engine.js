@@ -8,7 +8,7 @@ import loadMujoco from '../vendor/mujoco/mujoco.js';
 
 export class SimEngine {
   static async create() {
-    const mujoco = await loadMujoco();
+    const mujoco = await loadMujoco(globalThis.__HORST_WASM ? { wasmBinary: globalThis.__HORST_WASM } : undefined);
     return new SimEngine(mujoco);
   }
 

@@ -18,6 +18,14 @@ let fps = 0, frames = 0, fpsT0 = performance.now();
 
 /* ---------- Boot ---------- */
 (async function boot() {
+  if (location.protocol === 'file:' && !globalThis.__HORST_WASM) {
+    document.body.insertAdjacentHTML('beforeend',
+      '<div style="position:fixed;inset:0;z-index:99;display:grid;place-items:center;background:#031e20;color:#e8fbfa;font:600 15px/1.6 system-ui;padding:24px;text-align:center">' +
+      'horstSIM kann nicht direkt über file:// laufen (Browser blockiert Module/WASM).<br>' +
+      'Bitte per lokalem Server starten – z.&nbsp;B. <code style="color:#5adbd6">npx serve .</code> – ' +
+      'oder die Einzeldatei <b>horstsim_single.html</b> verwenden.</div>');
+    return;
+  }
   const ov = $('#loading');
   try {
     engine = await SimEngine.create();
@@ -43,7 +51,7 @@ let fps = 0, frames = 0, fpsT0 = performance.now();
 
 /* ---------- Laden ---------- */
 async function loadScene(entry) {
-  let xml = entry.make ? entry.make() : await (await fetch(entry.url)).text();
+  let xml = entry.make ? entry.make() : (globalThis.__HORST_FILES?.[entry.url] ?? await (await fetch(entry.url)).text());
   loadXML(xml, entry.name);
 }
 
