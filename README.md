@@ -1,5 +1,7 @@
 # horstSIM – MuJoCo-Robotersimulation im Browser
 
+**Live:** https://manubloc.github.io/horst-sim/
+
 Web-basiertes Simulationstool im horstOS-Design. Physik: offizielle
 **MuJoCo-WebAssembly-Bindings** von Google DeepMind (`@mujoco/mujoco`,
 Engine-Version 3.11), Rendering: three.js. Keine Build-Toolchain nötig –
