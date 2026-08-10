@@ -109,7 +109,7 @@ export function sceneHeader({ timestep = 0.002, integrator = 'implicitfast', gra
     <rgba haze="0.012 0.118 0.125 1" force="0.35 1 0.98 1" contactpoint="1 0.55 0.2 0.9" contactforce="0.35 1 0.98 0.9"/>
   </visual>
   <worldbody>
-    ${floor ? `<geom name="boden" type="plane" size="${floorSize} ${floorSize} 0.1" rgba="0.10 0.23 0.24 1" friction="0.9 0.005 0.0001"/>` : ''}`,
+    ${floor ? `<geom name="boden" type="plane" size="${floorSize} ${floorSize} 0.1" rgba="0.97 1 1 1" friction="0.9 0.005 0.0001"/>` : ''}`,
     close: (act, sens, key) => `  </worldbody>
   ${act ? `<actuator>\n    ${act}\n  </actuator>` : ''}
   ${sens ? `<sensor>${sens}\n  </sensor>` : ''}

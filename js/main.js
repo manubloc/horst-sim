@@ -4,6 +4,7 @@
 
 import { SimEngine } from './engine.js';
 import { SceneRenderer } from './renderer.js';
+import { duplicateFreeBody, removeFreeBody } from './sceneedit.js';
 import { attachInteraction } from './interaction.js';
 import { SCENES } from './scenes.js';
 import { mountWizard } from './wizard.js';
@@ -13,6 +14,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 let engine, renderer, wizard;
 let selectedBody = -1, tracking = false;
+let copiedName = null, pasteCount = 0;
 let recorder = null, recChunks = [];
 let fps = 0, frames = 0, fpsT0 = performance.now();
 
@@ -79,6 +81,8 @@ function onModelLoaded() {
   $('#xmleditor').value = engine.xml;
   buildActuators();
   buildSensors();
+  buildSceneTree();
+  selectBody(-1);
   syncPhysicsInputs();
   syncVisInputs();
   const m = engine.model;
@@ -164,6 +168,15 @@ function buildStaticPanels() {
   // Visualisierung
   $$('#panelVis [data-vis]').forEach(inp => inp.onchange = applyVisInputs);
   $('#visFrame').onchange = applyVisInputs;
+  $('#dupBtn').onclick = () => duplicateSelected();
+  $('#delBtn').onclick = () => deleteSelected();
+  $('#focusBtn').onclick = () => {
+    if (selectedBody > 0) {
+      const p = selectedBody * 3, xp = engine.data.xpos;
+      engine.cam.lookat[0] = xp[p]; engine.cam.lookat[1] = xp[p + 1]; engine.cam.lookat[2] = xp[p + 2];
+    }
+  };
+  window.addEventListener('keydown', onEditKeys);
   $('#visCad').onchange = ev => renderer.robotMesh.setActive(ev.target.checked);
   $('#visShadow').onchange = ev => renderer.setShadows(ev.target.checked);
   $('#visWire').onchange = ev => renderer.setWireframe(ev.target.checked);
@@ -205,26 +218,56 @@ function buildActuators() {
   host.innerHTML = '';
   const acts = engine.listActuators();
   if (!acts.length) { host.innerHTML = '<p class="empty">Modell hat keine Aktoren.</p>'; return; }
+  const jByName = new Map(engine.listJoints().map(j => [j.name, j]));
+  const R2D = 180 / Math.PI;
+  let lastPrefix = null;
   for (const a of acts) {
+    const mm = a.name.match(/^(.*)A(\d+)$/);
+    const prefix = mm ? mm[1] : null;
+    const joint = mm ? jByName.get(`${prefix}j${mm[2]}`) : null;
+    if (mm && prefix !== lastPrefix) {
+      lastPrefix = prefix;
+      const h = document.createElement('div');
+      h.className = 'axgroup';
+      h.textContent = prefix ? `Roboter ${prefix.replace(/_$/, '')}` : 'HORST600 · Achsen';
+      host.append(h);
+    }
+    const deg = !!joint;
+    const min = deg ? a.min * R2D : a.min, max = deg ? a.max * R2D : a.max;
+    const val = deg ? a.value * R2D : a.value;
     const row = document.createElement('div');
     row.className = 'act-row';
     row.innerHTML = `
-      <span class="act-name" title="${a.name}">${a.name}</span>
-      <input type="range" min="${a.min}" max="${a.max}" step="0.001" value="${a.value}">
-      <output>${a.value.toFixed(2)}</output>`;
+      <span class="act-name" title="${a.name}${deg ? ` · ${min.toFixed(0)}° … ${max.toFixed(0)}°` : ''}">${mm ? 'A' + mm[2] : a.name}</span>
+      <input type="range" min="${min.toFixed(2)}" max="${max.toFixed(2)}" step="${deg ? 0.5 : 0.001}" value="${val.toFixed(2)}">
+      <output>${val.toFixed(deg ? 1 : 2)}${deg ? '°' : ''}</output>`;
     const slider = row.querySelector('input'), out = row.querySelector('output');
-    slider.oninput = () => { engine.data.ctrl[a.i] = +slider.value; out.textContent = (+slider.value).toFixed(2); };
     slider.dataset.act = a.i;
+    if (deg) { slider.dataset.deg = '1'; slider.dataset.qadr = joint.qadr; }
+    slider.oninput = () => {
+      const v = +slider.value, rad = deg ? v / R2D : v;
+      engine.data.ctrl[a.i] = rad;
+      out.textContent = v.toFixed(deg ? 1 : 2) + (deg ? '°' : '');
+      if (engine.paused && joint) {           // im Standbild direkt posieren
+        engine.data.qpos[joint.qadr] = rad;
+        engine.data.qvel.fill(0);
+        engine.mujoco.mj_forward(engine.model, engine.data);
+      }
+    };
+    slider.onpointerdown = () => { slider.dataset.hold = '1'; };
+    slider.onpointerup = () => { delete slider.dataset.hold; };
     host.append(row);
   }
 }
 
-function refreshActuatorSliders() {
+function refreshActuatorSliders(force = false) {
+  const R2D = 180 / Math.PI;
   $$('#actList input[type=range]').forEach(sl => {
-    const i = +sl.dataset.act;
-    const v = engine.data.ctrl[i];
-    if (document.activeElement !== sl) sl.value = v;
-    sl.nextElementSibling.textContent = v.toFixed(2);
+    const i = +sl.dataset.act, deg = sl.dataset.deg === '1';
+    const qadr = sl.dataset.qadr !== undefined ? +sl.dataset.qadr : -1;
+    const ist = deg && qadr >= 0 ? engine.data.qpos[qadr] * R2D : engine.data.ctrl[i];
+    if ((force || !sl.dataset.hold) && document.activeElement !== sl) sl.value = ist;
+    sl.nextElementSibling.textContent = ist.toFixed(deg ? 1 : 2) + (deg ? '°' : '');
   });
 }
 
@@ -310,6 +353,10 @@ function refreshStatus() {
   const E = d.energy;
   $('#stEnergy').textContent = `${E[0].toFixed(2)} | ${E[1].toFixed(2)} J`;
   refreshActuatorSliders();
+  if (selectedBody > 0) {
+    const p = selectedBody * 3, xp = d.xpos;
+    $('#selInfoPos').textContent = `${xp[p].toFixed(3)}, ${xp[p + 1].toFixed(3)}, ${xp[p + 2].toFixed(3)} m`;
+  }
 
   for (const s of sensorRows) {
     const vals = [];
@@ -323,11 +370,146 @@ function refreshStatus() {
     : '<p class="empty">Keine Kontakte.</p>';
 }
 
-function onBodySelected(body) {
+function isFreeBody(i) {
+  if (i <= 0) return false;
+  const md = engine.model;
+  if (md.body_jntnum[i] !== 1) return false;
+  const FREE = engine.mujoco.mjtJoint?.mjJNT_FREE?.value ?? 0;
+  return md.jnt_type[md.body_jntadr[i]] === FREE;
+}
+
+function selectBody(body) {
   selectedBody = body;
+  engine.pert.select = body > 0 ? body : 0;
   $('#selname').textContent = body > 0 ? engine.bodyName(body) : '–';
+  $$('#scenetree .trow').forEach(el => el.classList.toggle('sel', +el.dataset.body === body));
+  const free = body > 0 && isFreeBody(body);
+  $('#selInfoName').textContent = body > 0 ? engine.bodyName(body) : '–';
+  $('#selInfoType').textContent = body > 0 ? (free ? 'Freies Objekt' : 'Struktur / Roboter') : '–';
+  if (body <= 0) $('#selInfoPos').textContent = '–';
+  $('#dupBtn').disabled = !free;
+  $('#delBtn').disabled = !free;
+  $('#focusBtn').disabled = body <= 0;
   if (tracking && body > 0) engine.cam.trackbodyid = body;
 }
+
+function buildSceneTree() {
+  const host = $('#scenetree');
+  host.innerHTML = '';
+  const md = engine.model;
+  const grp = t => { const h = document.createElement('div'); h.className = 'tgroup'; h.textContent = t; return h; };
+  const row = (body, icon, label, color) => {
+    const d = document.createElement('div');
+    d.className = 'trow'; d.dataset.body = body;
+    d.innerHTML = `<i${color ? ` style="color:${color}"` : ''}>${icon}</i><span title="${label}">${label}</span>`;
+    d.onclick = () => selectBody(body);
+    return d;
+  };
+  const robots = [];
+  for (let i = 1; i < md.nbody; i++) {
+    const n = engine.bodyName(i) || '';
+    if (n.endsWith('horst_basis')) robots.push({ base: i, prefix: n.slice(0, -'horst_basis'.length) });
+  }
+  const robotBodies = new Set();
+  for (const r of robots) {
+    robotBodies.add(r.base);
+    for (let i = 1; i < md.nbody; i++) {
+      const n = engine.bodyName(i) || '';
+      if (r.prefix ? n.startsWith(r.prefix) : /^link_\d$/.test(n)) robotBodies.add(i);
+    }
+  }
+  if (robots.length) {
+    host.append(grp('Roboter'));
+    for (const r of robots) host.append(row(r.base, '⛭', `HORST600 ${r.prefix.replace(/_$/, '')}`.trim()));
+  }
+  const icons = { 2: '●', 3: '▯', 5: '▮', 6: '■' };
+  const free = [], stat = [];
+  for (let i = 1; i < md.nbody; i++) {
+    if (robotBodies.has(i)) continue;
+    const gi = md.body_geomadr[i], hasGeom = gi >= 0 && md.body_geomnum[i] > 0;
+    const gt = hasGeom ? md.geom_type[gi] : -1;
+    const color = hasGeom ? `rgb(${[0, 1, 2].map(k => Math.round(md.geom_rgba[gi * 4 + k] * 255)).join(',')})` : '';
+    const item = { i, name: engine.bodyName(i) || `#${i}`, icon: icons[gt] ?? '◆', color };
+    (isFreeBody(i) ? free : stat).push(item);
+  }
+  if (free.length) { host.append(grp(`Objekte (${free.length})`)); for (const o of free) host.append(row(o.i, o.icon, o.name, o.color)); }
+  if (stat.length) { host.append(grp('Statisch')); for (const o of stat) host.append(row(o.i, o.icon, o.name, o.color)); }
+}
+
+function loadXMLKeepState(xml, qposArr) {
+  const ok = loadXML(xml, 'Bearbeitung');
+  if (!ok) return false;
+  if (qposArr && qposArr.length === engine.data.qpos.length) {
+    engine.data.qpos.set(qposArr);
+    engine.data.qvel.fill(0);
+    engine.mujoco.mj_forward(engine.model, engine.data);
+  }
+  return true;
+}
+
+function bodyIdByName(name) {
+  for (let i = 0; i < engine.model.nbody; i++) if (engine.bodyName(i) === name) return i;
+  return -1;
+}
+
+function duplicateSelected(srcName) {
+  const name = srcName ?? (selectedBody > 0 ? engine.bodyName(selectedBody) : null);
+  const body = name ? bodyIdByName(name) : -1;
+  if (body <= 0 || !isFreeBody(body)) { toast('Nur freie Objekte lassen sich duplizieren.', true); return; }
+  pasteCount++;
+  const d = engine.data, p = body * 3, q = body * 4;
+  const off = 0.06 + 0.012 * (pasteCount % 5);
+  const pose = {
+    pos: [d.xpos[p] + off, d.xpos[p + 1] + off * 0.6, d.xpos[p + 2] + 0.02],
+    quat: [d.xquat[q], d.xquat[q + 1], d.xquat[q + 2], d.xquat[q + 3]],
+  };
+  const oldQ = Array.from(d.qpos);
+  let res;
+  try { res = duplicateFreeBody(engine.xml, name, pose); }
+  catch (e) { toast('Duplizieren: ' + e.message, true); return; }
+  if (!loadXMLKeepState(res.xml, [...oldQ, ...pose.pos, ...pose.quat])) return;
+  const nb = bodyIdByName(res.newName);
+  if (nb > 0) selectBody(nb);
+  toast(`„${res.newName}" eingefügt`);
+}
+
+function deleteSelected() {
+  if (selectedBody <= 0 || !isFreeBody(selectedBody)) { toast('Nur freie Objekte lassen sich löschen.', true); return; }
+  const name = engine.bodyName(selectedBody);
+  const md = engine.model;
+  const qadr = md.jnt_qposadr[md.body_jntadr[selectedBody]];
+  const oldQ = Array.from(engine.data.qpos);
+  const newQ = [...oldQ.slice(0, qadr), ...oldQ.slice(qadr + 7)];
+  let xml2;
+  try { xml2 = removeFreeBody(engine.xml, name, qadr); }
+  catch (e) { toast('Löschen: ' + e.message, true); return; }
+  if (!loadXMLKeepState(xml2, newQ)) return;
+  if (copiedName === name) copiedName = null;
+  selectBody(-1);
+  toast(`„${name}" entfernt`);
+}
+
+function onEditKeys(e) {
+  const t = e.target;
+  if (t && /input|textarea|select/i.test(t.tagName)) return;
+  const mod = e.ctrlKey || e.metaKey;
+  const k = e.key.toLowerCase();
+  if (mod && k === 'c') {
+    if (selectedBody > 0 && isFreeBody(selectedBody)) {
+      copiedName = engine.bodyName(selectedBody);
+      toast(`„${copiedName}" kopiert – Strg+V fügt ein`);
+    }
+  } else if (mod && k === 'v') {
+    if (copiedName) duplicateSelected(copiedName);
+  } else if (mod && k === 'd') {
+    e.preventDefault();
+    duplicateSelected();
+  } else if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (selectedBody > 0 && isFreeBody(selectedBody)) { e.preventDefault(); deleteSelected(); }
+  }
+}
+
+function onBodySelected(body) { selectBody(body); }
 
 /* ---------- Aufnahme ---------- */
 function toggleRecording() {

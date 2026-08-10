@@ -39,25 +39,13 @@
 </head>
 <body>
 
-<!-- Linke Navigationsleiste (horstOS) -->
-<nav class="navstack" aria-label="Hauptnavigation">
-  <div class="logo" title="horstOS">
-    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg>
+<!-- Linke Spalte: 3D-Datenübersicht -->
+<aside class="sidenav">
+  <div class="panel treewrap">
+    <h3>3D-Übersicht</h3>
+    <div class="pbody"><div id="scenetree" class="tree"></div></div>
   </div>
-  <button class="nav-it" title="Project Setup" disabled>
-    <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
-  </button>
-  <button class="nav-it" title="3D Welt / Programmieren" disabled>
-    <svg viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5" stroke="currentColor" stroke-width="1.4" fill="none"/></svg>
-  </button>
-  <button class="nav-it act" title="Simulation" aria-current="page">
-    <svg viewBox="0 0 24 24"><path d="M5 12a7 7 0 1 1 2 4.9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M5 17v-5h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/></svg>
-    <i class="dot"></i>
-  </button>
-  <button class="nav-it" title="Process Control" disabled>
-    <svg viewBox="0 0 24 24"><path d="M4 17l5-6 4 3 7-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-  </button>
-</nav>
+</aside>
 
 <!-- Kopfzeile -->
 <header class="topbar">
@@ -114,8 +102,23 @@
       </div>
     </div>
 
+    <div class="panel" id="panelAuswahl">
+      <h3>Auswahl</h3>
+      <div class="pbody">
+        <div class="kv"><span>Objekt</span><b id="selInfoName">–</b></div>
+        <div class="kv"><span>Typ</span><b id="selInfoType">–</b></div>
+        <div class="kv"><span>Position</span><b id="selInfoPos">–</b></div>
+        <div class="btnrow">
+          <button id="dupBtn" class="btn ghost sm" disabled>Duplizieren</button>
+          <button id="delBtn" class="btn ghost sm" disabled>Löschen</button>
+          <button id="focusBtn" class="btn ghost sm" disabled>Fokus</button>
+        </div>
+        <p class="hint">Objekt im 3D anklicken &amp; ziehen zum Verschieben (rechte Taste: drehen). Strg+C/V kopiert &amp; fügt ein, Entf löscht.</p>
+      </div>
+    </div>
+
     <div class="panel" id="panelAkt">
-      <h3>Aktuatoren</h3>
+      <h3>Achsen &amp; Aktoren</h3>
       <div class="pbody" id="actList"></div>
     </div>
 

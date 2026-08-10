@@ -19,9 +19,9 @@ body{
   font-family:'Macan','Manrope',system-ui,sans-serif;
   overflow:hidden;
   display:grid;
-  grid-template-columns:var(--rail) 1fr;
+  grid-template-columns:250px 1fr;
   grid-template-rows:var(--top) 1fr;
-  grid-template-areas:"rail top" "rail stage";
+  grid-template-areas:"top top" "tree stage";
 }
 
 /* ---------- Nav-Rail ---------- */
@@ -241,3 +241,16 @@ label{font-size:.76rem;color:var(--muted);display:flex;flex-direction:column;gap
 @media (prefers-reduced-motion:reduce){
   *{animation:none!important;transition:none!important}
 }
+
+/* ---------- Linke 3D-Übersicht ---------- */
+.sidenav{grid-area:tree;min-height:0;padding:10px 0 10px 10px;display:flex}
+.sidenav .treewrap{flex:1;display:flex;flex-direction:column;min-height:0}
+.sidenav .treewrap .pbody{flex:1;overflow:auto;min-height:0}
+.tree{display:flex;flex-direction:column;gap:2px;font-size:12.5px}
+.tgroup{margin:8px 2px 3px;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim,#7fb7b4);opacity:.85}
+.trow{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:8px;cursor:pointer;border:1px solid transparent}
+.trow:hover{background:rgba(90,219,214,.07)}
+.trow.sel{background:rgba(90,219,214,.14);border-color:rgba(90,219,214,.35)}
+.trow i{font-style:normal;width:16px;text-align:center;flex:0 0 16px}
+.trow span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.axgroup{margin:8px 2px 3px;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim,#7fb7b4);opacity:.85}

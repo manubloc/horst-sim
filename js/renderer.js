@@ -22,13 +22,13 @@ export class SceneRenderer {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.12;
+    this.renderer.toneMappingExposure = 1.3;
     container.appendChild(this.renderer.domElement);
     this.canvas = this.renderer.domElement;
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x031e20);
-    this.scene.fog = new THREE.FogExp2(0x031e20, 0.035);
+    this.scene.background = new THREE.Color(0x0e4147);
+    this.scene.fog = new THREE.FogExp2(0x0e4147, 0.024);
 
     this.camera = new THREE.PerspectiveCamera(42, 1, 0.01, 200);
     this.camera.up.set(0, 0, 1);
@@ -57,8 +57,8 @@ export class SceneRenderer {
   }
 
   _buildLights() {
-    this.scene.add(new THREE.HemisphereLight(0x9be8ea, 0x02181a, 0.6));
-    const sun = new THREE.DirectionalLight(0xffffff, 2.4);
+    this.scene.add(new THREE.HemisphereLight(0xcdf2f2, 0x0d3236, 1.0));
+    const sun = new THREE.DirectionalLight(0xffffff, 2.8);
     sun.position.set(2.6, 1.8, 4.2);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -67,22 +67,29 @@ export class SceneRenderer {
     sun.shadow.bias = -0.0002;
     this.sun = sun;
     this.scene.add(sun);
-    const fill = new THREE.DirectionalLight(0x5adbd6, 0.5);
+    const fill = new THREE.DirectionalLight(0x5adbd6, 0.75);
     fill.position.set(-3.2, -2.4, 2.2);
     this.scene.add(fill);
   }
 
   _makeChecker() {
+    // Helles Gitternetz: kräftige Hauptlinien je Zelle, feines 5er-Subraster.
     const s = 512, c = document.createElement('canvas');
     c.width = c.height = s;
     const g = c.getContext('2d');
-    g.fillStyle = '#052d30'; g.fillRect(0, 0, s, s);
-    g.fillStyle = '#04282b';
-    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) if ((x + y) % 2) g.fillRect(x * s / 8, y * s / 8, s / 8, s / 8);
-    g.strokeStyle = 'rgba(90,219,214,0.10)'; g.lineWidth = 2;
+    g.fillStyle = '#d8e7e8'; g.fillRect(0, 0, s, s);
+    const cell = s / 8;
+    g.strokeStyle = 'rgba(70,120,124,0.35)'; g.lineWidth = 1;
+    for (let i = 0; i <= 40; i++) {
+      if (i % 5 === 0) continue;
+      const p = i * s / 40;
+      g.beginPath(); g.moveTo(p, 0); g.lineTo(p, s); g.stroke();
+      g.beginPath(); g.moveTo(0, p); g.lineTo(s, p); g.stroke();
+    }
+    g.strokeStyle = 'rgba(14,84,89,0.9)'; g.lineWidth = 2.5;
     for (let i = 0; i <= 8; i++) {
-      g.beginPath(); g.moveTo(i * s / 8, 0); g.lineTo(i * s / 8, s); g.stroke();
-      g.beginPath(); g.moveTo(0, i * s / 8); g.lineTo(s, i * s / 8); g.stroke();
+      g.beginPath(); g.moveTo(i * cell, 0); g.lineTo(i * cell, s); g.stroke();
+      g.beginPath(); g.moveTo(0, i * cell); g.lineTo(s, i * cell); g.stroke();
     }
     const tex = new THREE.CanvasTexture(c);
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;

@@ -53,15 +53,16 @@ export function attachInteraction(canvas, engine, { onSelect } = {}) {
   canvas.addEventListener('pointerdown', ev => {
     canvas.setPointerCapture(ev.pointerId);
     dragging = true; button = ev.button; lastX = ev.clientX; lastY = ev.clientY;
-    if ((ev.ctrlKey || ev.metaKey) && engine.loaded) {
-      const body = select(ev);
-      if (body > 0) {
-        engine.pert.active = ev.button === 2
-          ? mj.mjtPertBit.mjPERT_ROTATE.value
-          : mj.mjtPertBit.mjPERT_TRANSLATE.value;
-        mj.mjv_initPerturb(engine.model, engine.data, engine.scene, engine.pert);
-        perturbing = true;
-      }
+    if (!engine.loaded) return;
+    // Direktmanipulation: Klick wählt aus; Treffer auf einen Körper startet
+    // sofort das Ziehen (links) bzw. Drehen (rechts). Leerer Raum → Kamera.
+    const body = select(ev);
+    if (body > 0) {
+      engine.pert.active = ev.button === 2
+        ? mj.mjtPertBit.mjPERT_ROTATE.value
+        : mj.mjtPertBit.mjPERT_TRANSLATE.value;
+      mj.mjv_initPerturb(engine.model, engine.data, engine.scene, engine.pert);
+      perturbing = true;
     }
   });
 
