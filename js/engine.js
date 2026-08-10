@@ -8,7 +8,9 @@ import loadMujoco from '../vendor/mujoco/mujoco.js';
 
 export class SimEngine {
   static async create() {
+    globalThis.__bootlog?.('MuJoCo-WASM wird geladen (≈10 MB, erster Aufruf dauert) …');
     const mujoco = await loadMujoco(globalThis.__HORST_WASM ? { wasmBinary: globalThis.__HORST_WASM } : undefined);
+    globalThis.__bootlog?.('Physik-Engine bereit – Szene wird kompiliert …');
     return new SimEngine(mujoco);
   }
 

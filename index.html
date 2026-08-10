@@ -8,6 +8,34 @@
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/app.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23015d65'/><circle cx='16' cy='16' r='7' fill='none' stroke='%235adbd6' stroke-width='3'/></svg>">
+<script>
+/* Boot-Diagnose: zeigt Ladefortschritt und JEDEN Fehler direkt im Lade-Overlay an. */
+(function () {
+  function line(msg, isErr) {
+    try {
+      var el = document.getElementById('bootlog');
+      if (!el) return;
+      var d = document.createElement('div');
+      d.textContent = msg;
+      if (isErr) d.style.color = '#ff7d7d';
+      el.appendChild(d);
+      while (el.childElementCount > 6) el.removeChild(el.firstChild);
+    } catch (e) {}
+  }
+  window.__bootlog = line;
+  window.addEventListener('error', function (e) {
+    if (e.target && (e.target.src || e.target.href) && e.target !== window) {
+      line('Laden fehlgeschlagen: ' + (e.target.src || e.target.href).split('/').slice(-2).join('/'), true);
+    } else {
+      line('Fehler: ' + (e.message || e.type) + (e.filename ? ' @ ' + e.filename.split('/').pop() + ':' + e.lineno : ''), true);
+    }
+  }, true);
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e.reason;
+    line('Fehler (async): ' + (r && (r.message || r.toString()) || r), true);
+  });
+})();
+</script>
 </head>
 <body>
 
@@ -206,6 +234,7 @@
     <div class="spin"></div>
     <h2>horstSIM startet</h2>
     <p>MuJoCo-Physik-Engine (WebAssembly) wird geladen …</p>
+    <div id="bootlog" class="bootlog" style="margin-top:10px;font:500 12px/1.6 ui-monospace,monospace;color:#9fd8d5;max-width:420px;text-align:left"></div>
   </div>
 </div>
 

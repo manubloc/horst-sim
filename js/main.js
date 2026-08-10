@@ -18,6 +18,7 @@ let fps = 0, frames = 0, fpsT0 = performance.now();
 
 /* ---------- Boot ---------- */
 (async function boot() {
+  globalThis.__bootlog?.('Module geladen – Engine wird initialisiert …');
   if (location.protocol === 'file:' && !globalThis.__HORST_WASM) {
     document.body.insertAdjacentHTML('beforeend',
       '<div style="position:fixed;inset:0;z-index:99;display:grid;place-items:center;background:#031e20;color:#e8fbfa;font:600 15px/1.6 system-ui;padding:24px;text-align:center">' +
