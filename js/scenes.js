@@ -137,11 +137,23 @@ export function sceneHorstCell() {
     { name: 'kiste_b', type: 'box', size: '0.024 0.024 0.024', rgba: '0.92 0.55 0.15 1', pos: [0.42, 0.02, 0.418], mass: 0.12 },
     { name: 'zylinder', type: 'cylinder', size: '0.019 0.032', rgba: '0.63 0.63 0.69 1', pos: [0.37, -0.09, 0.426], mass: 0.15 },
     { name: 'kugel', type: 'sphere', size: '0.022', rgba: '0.74 1 0.99 1', pos: [0.44, -0.14, 0.416], mass: 0.1 },
+    /* Kugel-Traube: kollabiert beim Start und rollt auseinander (Reibung bewusst niedrig). */
+    { name: 'rollkugel_1', type: 'sphere', size: '0.022', rgba: '0.74 1 0.99 1',  pos: [0.386, -0.164, 0.392], mass: 0.10, friction: '0.5 0.0015 0.00003' },
+    { name: 'rollkugel_2', type: 'sphere', size: '0.022', rgba: '0.35 1 0.98 1',  pos: [0.434, -0.164, 0.392], mass: 0.10, friction: '0.5 0.0015 0.00003' },
+    { name: 'rollkugel_3', type: 'sphere', size: '0.022', rgba: '0.92 0.55 0.15 1', pos: [0.386, -0.116, 0.392], mass: 0.10, friction: '0.5 0.0015 0.00003' },
+    { name: 'rollkugel_4', type: 'sphere', size: '0.022', rgba: '0.63 0.63 0.69 1', pos: [0.434, -0.116, 0.392], mass: 0.10, friction: '0.5 0.0015 0.00003' },
+    { name: 'rollkugel_5', type: 'sphere', size: '0.021', rgba: '0.95 0.42 0.10 1', pos: [0.410, -0.152, 0.428], mass: 0.09, friction: '0.5 0.0015 0.00003' },
+    { name: 'rollkugel_6', type: 'sphere', size: '0.024', rgba: '0.85 0.87 0.90 1', pos: [0.416, -0.126, 0.432], mass: 0.12, friction: '0.5 0.0015 0.00003' },
+    /* Würfel-Regen aus verschiedenen Höhen; fallwuerfel_4 trifft die Traube. */
+    { name: 'fallwuerfel_1', type: 'box', size: '0.026 0.026 0.026', rgba: '0.92 0.55 0.15 1', pos: [0.10, 0.20, 1.30], mass: 0.14, quat: [0.91923, 0.04635, 0.24523, 0.30451] },
+    { name: 'fallwuerfel_2', type: 'box', size: '0.030 0.030 0.030', rgba: '0.63 0.63 0.69 1', pos: [0.50, 0.05, 1.50], mass: 0.18, quat: [0.84461, 0.1812, 0.20182, 0.46159] },
+    { name: 'fallwuerfel_3', type: 'box', size: '0.024 0.024 0.024', rgba: '0.95 0.42 0.10 1', pos: [0.22, -0.24, 0.95], mass: 0.12, quat: [0.91188, 0.36951, 0.17672, -0.0267] },
+    { name: 'fallwuerfel_4', type: 'box', size: '0.028 0.028 0.028', rgba: '0.85 0.87 0.90 1', pos: [0.41, -0.14, 1.05], mass: 0.16, quat: [0.89554, 0.00468, 0.42833, 0.12051] },
   ];
   const objXml = objs.map(o => `
-    <body name="${o.name}" pos="${v(o.pos)}">
+    <body name="${o.name}" pos="${v(o.pos)}"${o.quat ? ` quat="${o.quat.join(' ')}"` : ''}>
       <freejoint/>
-      <geom type="${o.type}" size="${o.size}" rgba="${o.rgba}" mass="${o.mass}" friction="0.8 0.004 0.0001"/>
+      <geom type="${o.type}" size="${o.size}" rgba="${o.rgba}" mass="${o.mass}" friction="${o.friction ?? '0.8 0.004 0.0001'}"/>
     </body>`).join('');
   const world = `
     <body name="tisch" pos="0.18 0 0">
