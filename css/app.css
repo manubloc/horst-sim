@@ -254,3 +254,40 @@ label{font-size:.76rem;color:var(--muted);display:flex;flex-direction:column;gap
 .trow i{font-style:normal;width:16px;text-align:center;flex:0 0 16px}
 .trow span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .axgroup{margin:8px 2px 3px;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim,#7fb7b4);opacity:.85}
+
+/* ---------- Pick&Place-Buttons ---------- */
+.btn.pick{color:#fff;border:none;font-weight:700}
+.btn.pick.red{background:linear-gradient(135deg,#d8443e,#a92722)}
+.btn.pick.blue{background:linear-gradient(135deg,#3d6df0,#2447b8)}
+.btn.pick:disabled{opacity:.4}
+
+/* ---------- Mobile / Responsive ---------- */
+.viewport canvas{touch-action:none}
+@media (max-width: 940px){
+  :root{--dock:100%}
+  body{display:flex;flex-direction:column;height:auto;min-height:100dvh;overflow-y:auto}
+  .topbar{position:sticky;top:0;z-index:30;flex-wrap:wrap;padding:8px 12px}
+  .topbar .crumb{display:none}
+  .topbar .chips{display:none}
+  .stage{order:1;display:block;min-height:0}
+  .viewport{position:sticky;top:48px;z-index:20;height:44dvh;min-height:280px;border-radius:0;border-left:none;border-right:none}
+  .transport{left:8px;right:8px;bottom:8px;flex-wrap:wrap;gap:6px;justify-content:center}
+  .tbtn{min-width:44px;min-height:44px;font-size:16px}
+  .tspeed{flex-basis:100%;justify-content:center}
+  .dock{width:auto;max-height:none;overflow:visible;padding:10px;border-left:none}
+  .sidenav{order:2;padding:0 10px 20px;display:block}
+  .sidenav .treewrap{max-height:none}
+  .sidenav .treewrap .pbody{max-height:45dvh}
+  .panel h3{padding:12px 14px;font-size:13px}
+  .btn{min-height:44px}
+  .btnrow{flex-wrap:wrap}
+  .btnrow .btn{flex:1 1 45%}
+  .act-row{grid-template-columns:52px 1fr 58px}
+  .act-row input[type=range]{height:34px}
+  input[type=range]::-webkit-slider-thumb{width:22px;height:22px}
+  .input,select.input{min-height:40px;font-size:15px}
+  .hud{font-size:11px}
+}
+@media (max-width: 940px) and (orientation: landscape){
+  .viewport{height:70dvh}
+}

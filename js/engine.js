@@ -6,6 +6,24 @@
 
 import loadMujoco from '../vendor/mujoco/mujoco.js';
 
+/* --- Kleine Quaternion-Helfer (w,x,y,z) für den Greif-Attach --- */
+function mat3ToQuat(m, o) {   // m: row-major 9er, o: offset
+  const t = m[o] + m[o + 4] + m[o + 8];
+  let w, x, y, z;
+  if (t > 0) { const s = Math.sqrt(t + 1) * 2; w = s / 4; x = (m[o + 7] - m[o + 5]) / s; y = (m[o + 2] - m[o + 6]) / s; z = (m[o + 3] - m[o + 1]) / s; }
+  else if (m[o] > m[o + 4] && m[o] > m[o + 8]) { const s = Math.sqrt(1 + m[o] - m[o + 4] - m[o + 8]) * 2; w = (m[o + 7] - m[o + 5]) / s; x = s / 4; y = (m[o + 1] + m[o + 3]) / s; z = (m[o + 2] + m[o + 6]) / s; }
+  else if (m[o + 4] > m[o + 8]) { const s = Math.sqrt(1 + m[o + 4] - m[o] - m[o + 8]) * 2; w = (m[o + 2] - m[o + 6]) / s; x = (m[o + 1] + m[o + 3]) / s; y = s / 4; z = (m[o + 5] + m[o + 7]) / s; }
+  else { const s = Math.sqrt(1 + m[o + 8] - m[o] - m[o + 4]) * 2; w = (m[o + 3] - m[o + 1]) / s; x = (m[o + 2] + m[o + 6]) / s; y = (m[o + 5] + m[o + 7]) / s; z = s / 4; }
+  return [w, x, y, z];
+}
+const quatMul = (a, b) => [
+  a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3],
+  a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2],
+  a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1],
+  a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0],
+];
+const quatInv = (q) => [q[0], -q[1], -q[2], -q[3]];
+
 export class SimEngine {
   static async create() {
     globalThis.__bootlog?.('MuJoCo-WASM wird geladen (≈10 MB, erster Aufruf dauert) …');
@@ -15,6 +33,8 @@ export class SimEngine {
   }
 
   constructor(mujoco) {
+    this.attachInfo = null;
+    this._ikData = null;      // Scratch-MjData für die IK (pick.js)   // Vakuumgreifer: { qadr, dofadr, siteId, relp, relq }
     this.mujoco = mujoco;
     this.model = null;
     this.data = null;
@@ -51,6 +71,8 @@ export class SimEngine {
 
     this.model = model;
     this.data = new mj.MjData(model);
+    this._ikData?.delete?.();
+    this._ikData = new mj.MjData(model);
     this.scene = new mj.MjvScene(model, 4000);
     this.vopt = new mj.MjvOption();
     this.pert = new mj.MjvPerturb();
@@ -72,12 +94,48 @@ export class SimEngine {
   }
 
   _freeAll() {
+    this._ikData?.delete?.();
+    this._ikData = null;
+    this.attachInfo = null;
     for (const k of ['scene', 'vopt', 'pert', 'cam', 'data', 'model']) {
       if (this[k]) { try { this[k].delete(); } catch (_) {} this[k] = null; }
     }
   }
 
   /** Echtzeit-Stepping mit Akkumulator; Perturbationskräfte werden je Step angewandt. */
+  /** Objekt am TCP "ansaugen": relative Pose im Site-Frame merken. */
+  attachBody(bodyId, siteId) {
+    const md = this.model, d = this.data;
+    const j = md.body_jntadr[bodyId];
+    const qadr = md.jnt_qposadr[j], dofadr = md.jnt_dofadr[j];
+    const s3 = siteId * 3, s9 = siteId * 9, b3 = bodyId * 3, b4 = bodyId * 4;
+    const sm = d.site_xmat, sp = d.site_xpos;
+    const dx = [d.xpos[b3] - sp[s3], d.xpos[b3 + 1] - sp[s3 + 1], d.xpos[b3 + 2] - sp[s3 + 2]];
+    const relp = [                                    // R_site^T · dx
+      sm[s9] * dx[0] + sm[s9 + 3] * dx[1] + sm[s9 + 6] * dx[2],
+      sm[s9 + 1] * dx[0] + sm[s9 + 4] * dx[1] + sm[s9 + 7] * dx[2],
+      sm[s9 + 2] * dx[0] + sm[s9 + 5] * dx[1] + sm[s9 + 8] * dx[2],
+    ];
+    const qs = mat3ToQuat(sm, s9);
+    const relq = quatMul(quatInv(qs), [d.xquat[b4], d.xquat[b4 + 1], d.xquat[b4 + 2], d.xquat[b4 + 3]]);
+    this.attachInfo = { qadr, dofadr, siteId, relp, relq };
+  }
+
+  releaseBody() { this.attachInfo = null; }
+
+  _applyAttach() {
+    const a = this.attachInfo;
+    if (!a || !this.loaded) return;
+    const d = this.data, s3 = a.siteId * 3, s9 = a.siteId * 9;
+    const sm = d.site_xmat, sp = d.site_xpos, r = a.relp;
+    d.qpos[a.qadr]     = sp[s3]     + sm[s9] * r[0]     + sm[s9 + 1] * r[1] + sm[s9 + 2] * r[2];
+    d.qpos[a.qadr + 1] = sp[s3 + 1] + sm[s9 + 3] * r[0] + sm[s9 + 4] * r[1] + sm[s9 + 5] * r[2];
+    d.qpos[a.qadr + 2] = sp[s3 + 2] + sm[s9 + 6] * r[0] + sm[s9 + 7] * r[1] + sm[s9 + 8] * r[2];
+    const q = quatMul(mat3ToQuat(sm, s9), a.relq);
+    d.qpos[a.qadr + 3] = q[0]; d.qpos[a.qadr + 4] = q[1]; d.qpos[a.qadr + 5] = q[2]; d.qpos[a.qadr + 6] = q[3];
+    for (let k = 0; k < 6; k++) d.qvel[a.dofadr + k] = 0;
+  }
+
   update(dtWall) {
     if (!this.loaded || this.paused) return 0;
     const mj = this.mujoco;
@@ -88,6 +146,7 @@ export class SimEngine {
     while (this._accum >= ts && steps < maxSteps) {
       this.data.xfrc_applied.fill(0);
       if (this.pert.active) mj.mjv_applyPerturbForce(this.model, this.data, this.pert);
+      this._applyAttach();
       mj.mj_step(this.model, this.data);
       this._accum -= ts;
       steps++;
@@ -107,6 +166,7 @@ export class SimEngine {
     if (!this.loaded) return;
     this.data.xfrc_applied.fill(0);
     if (this.pert.active) this.mujoco.mjv_applyPerturbForce(this.model, this.data, this.pert);
+    this._applyAttach();
     this.mujoco.mj_step(this.model, this.data);
   }
 

@@ -12,6 +12,8 @@
 export function attachInteraction(canvas, engine, { onSelect } = {}) {
   const mj = engine.mujoco;
   let dragging = false, button = 0, lastX = 0, lastY = 0, perturbing = false;
+  const touches = new Map();          // aktive Pointer für Pinch/Pan
+  let pinch = null;
 
   const rel = (dx, dy) => [dx / canvas.clientHeight, dy / canvas.clientHeight];
 
@@ -52,6 +54,14 @@ export function attachInteraction(canvas, engine, { onSelect } = {}) {
 
   canvas.addEventListener('pointerdown', ev => {
     canvas.setPointerCapture(ev.pointerId);
+    touches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (touches.size === 2) {                       // Zwei Finger: Pinch-Zoom / Pan
+      const [a, b] = [...touches.values()];
+      pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+      if (perturbing) { engine.pert.active = 0; perturbing = false; }
+      dragging = false;
+      return;
+    }
     dragging = true; button = ev.button; lastX = ev.clientX; lastY = ev.clientY;
     if (!engine.loaded) return;
     // Direktmanipulation: Klick wählt aus; Treffer auf einen Körper startet
@@ -67,6 +77,18 @@ export function attachInteraction(canvas, engine, { onSelect } = {}) {
   });
 
   canvas.addEventListener('pointermove', ev => {
+    if (touches.has(ev.pointerId)) touches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (pinch && touches.size >= 2 && engine.loaded) {
+      const [a, b] = [...touches.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      const M = mj.mjtMouse;
+      mj.mjv_moveCamera(engine.model, M.mjMOUSE_ZOOM.value, 0, (d - pinch.d) * 0.0035, engine.cam);
+      mj.mjv_moveCamera(engine.model, M.mjMOUSE_MOVE_V.value,
+        (mx - pinch.mx) / canvas.clientHeight, (my - pinch.my) / canvas.clientHeight, engine.cam);
+      pinch = { d, mx, my };
+      return;
+    }
     if (!dragging || !engine.loaded) return;
     const [dx, dy] = rel(ev.clientX - lastX, ev.clientY - lastY);
     lastX = ev.clientX; lastY = ev.clientY;
@@ -86,7 +108,10 @@ export function attachInteraction(canvas, engine, { onSelect } = {}) {
   });
 
   const endDrag = ev => {
-    dragging = false;
+    touches.delete(ev.pointerId);
+    if (touches.size < 2) pinch = null;
+    if (touches.size === 0) dragging = false;
+    else return;
     if (perturbing) { engine.pert.active = 0; perturbing = false; }
     try { canvas.releasePointerCapture(ev.pointerId); } catch (_) {}
   };

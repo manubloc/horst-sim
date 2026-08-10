@@ -137,6 +137,11 @@ export function sceneHorstCell() {
     { name: 'kiste_b', type: 'box', size: '0.024 0.024 0.024', rgba: '0.92 0.55 0.15 1', pos: [0.42, 0.02, 0.418], mass: 0.12 },
     { name: 'zylinder', type: 'cylinder', size: '0.019 0.032', rgba: '0.63 0.63 0.69 1', pos: [0.37, -0.09, 0.426], mass: 0.15 },
     { name: 'kugel', type: 'sphere', size: '0.022', rgba: '0.74 1 0.99 1', pos: [0.44, -0.14, 0.416], mass: 0.1 },
+    /* Pick&Place-Teile: Namen tragen die Farbe (_rot/_blau) für die Automatik. */
+    { name: 'kiste_rot_1',  type: 'box', size: '0.022 0.022 0.022', rgba: '0.88 0.16 0.14 1', pos: [0.34,  0.16, 0.394], mass: 0.11 },
+    { name: 'kiste_rot_2',  type: 'box', size: '0.022 0.022 0.022', rgba: '0.88 0.16 0.14 1', pos: [0.20, -0.20, 0.394], mass: 0.11 },
+    { name: 'kiste_blau_1', type: 'box', size: '0.022 0.022 0.022', rgba: '0.15 0.38 0.95 1', pos: [0.45,  0.02, 0.394], mass: 0.11 },
+    { name: 'kiste_blau_2', type: 'box', size: '0.022 0.022 0.022', rgba: '0.15 0.38 0.95 1', pos: [0.27,  0.24, 0.394], mass: 0.11 },
     /* Kugel-Traube: kollabiert beim Start und rollt auseinander (Reibung bewusst niedrig). */
     { name: 'rollkugel_1', type: 'sphere', size: '0.022', rgba: '0.74 1 0.99 1',  pos: [0.386, -0.164, 0.392], mass: 0.10, friction: '0.5 0.0015 0.00003' },
     { name: 'rollkugel_2', type: 'sphere', size: '0.022', rgba: '0.35 1 0.98 1',  pos: [0.434, -0.164, 0.392], mass: 0.10, friction: '0.5 0.0015 0.00003' },
@@ -162,6 +167,12 @@ export function sceneHorstCell() {
       <geom type="box" size="0.02 0.02 0.176" pos="0.39 -0.27 0.176" rgba="0.12 0.13 0.14 1"/>
       <geom type="box" size="0.02 0.02 0.176" pos="-0.39 0.27 0.176" rgba="0.12 0.13 0.14 1"/>
       <geom type="box" size="0.02 0.02 0.176" pos="-0.39 -0.27 0.176" rgba="0.12 0.13 0.14 1"/>
+    </body>
+    <body name="pad_rot" pos="0.10 0.245 0.373">
+      <geom type="box" size="0.06 0.05 0.003" rgba="0.85 0.20 0.18 0.6"/>
+    </body>
+    <body name="pad_blau" pos="0.10 -0.245 0.373">
+      <geom type="box" size="0.06 0.05 0.003" rgba="0.18 0.38 0.9 0.6"/>
     </body>
     <body name="ablage" pos="0.30 0.22 0.372">
       <geom type="box" size="0.07 0.07 0.002" pos="0 0 0" rgba="0.05 0.35 0.36 1"/>

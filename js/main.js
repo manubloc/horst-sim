@@ -5,6 +5,7 @@
 import { SimEngine } from './engine.js';
 import { SceneRenderer } from './renderer.js';
 import { duplicateFreeBody, removeFreeBody } from './sceneedit.js';
+import { PickController } from './pick.js';
 import { attachInteraction } from './interaction.js';
 import { SCENES } from './scenes.js';
 import { mountWizard } from './wizard.js';
@@ -15,6 +16,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 let engine, renderer, wizard;
 let selectedBody = -1, tracking = false;
 let copiedName = null, pasteCount = 0;
+let pick = null;
 let recorder = null, recChunks = [];
 let fps = 0, frames = 0, fpsT0 = performance.now();
 
@@ -37,6 +39,7 @@ let fps = 0, frames = 0, fpsT0 = performance.now();
     return;
   }
   renderer = new SceneRenderer($('#viewport'));
+  pick = new PickController(engine);
   engine.onReload = onModelLoaded;
   attachInteraction(renderer.canvas, engine, { onSelect: onBodySelected });
 
@@ -83,6 +86,9 @@ function onModelLoaded() {
   buildSensors();
   buildSceneTree();
   selectBody(-1);
+  pick.configure();
+  $('#pickRotBtn').disabled = !pick.ok;
+  $('#pickBlauBtn').disabled = !pick.ok;
   syncPhysicsInputs();
   syncVisInputs();
   const m = engine.model;
@@ -95,6 +101,7 @@ let lastT = performance.now(), statT = 0;
 function loop(t) {
   const dt = (t - lastT) / 1000; lastT = t;
   engine.update(dt);
+  pick?.tick(dt);
   if (tracking && selectedBody > 0) engine.cam.trackbodyid = selectedBody;
   renderer.render(engine);
 
@@ -168,6 +175,9 @@ function buildStaticPanels() {
   // Visualisierung
   $$('#panelVis [data-vis]').forEach(inp => inp.onchange = applyVisInputs);
   $('#visFrame').onchange = applyVisInputs;
+  $('#pickRotBtn').onclick = () => pick.start('rot');
+  $('#pickBlauBtn').onclick = () => pick.start('blau');
+  $('#pickStopBtn').onclick = () => pick.stop();
   $('#dupBtn').onclick = () => duplicateSelected();
   $('#delBtn').onclick = () => deleteSelected();
   $('#focusBtn').onclick = () => {
@@ -353,6 +363,7 @@ function refreshStatus() {
   const E = d.energy;
   $('#stEnergy').textContent = `${E[0].toFixed(2)} | ${E[1].toFixed(2)} J`;
   refreshActuatorSliders();
+  if (pick) $('#pickStatus').textContent = pick.status;
   if (selectedBody > 0) {
     const p = selectedBody * 3, xp = d.xpos;
     $('#selInfoPos').textContent = `${xp[p].toFixed(3)}, ${xp[p + 1].toFixed(3)}, ${xp[p + 2].toFixed(3)} m`;

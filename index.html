@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>horstSIM · Simulation</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -84,6 +84,18 @@
 
   <!-- Rechtes Panel-Dock -->
   <aside class="dock">
+
+    <div class="panel" id="panelPick">
+      <h3>Pick &amp; Place</h3>
+      <div class="pbody">
+        <div class="btnrow">
+          <button id="pickRotBtn" class="btn pick red" disabled>Rote greifen</button>
+          <button id="pickBlauBtn" class="btn pick blue" disabled>Blaue greifen</button>
+          <button id="pickStopBtn" class="btn ghost">Stopp</button>
+        </div>
+        <div class="kv"><span>Status</span><b id="pickStatus">bereit</b></div>
+      </div>
+    </div>
 
     <div class="panel" id="panelSzene">
       <h3>Szene</h3>
