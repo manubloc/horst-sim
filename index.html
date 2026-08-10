@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>horstSIM · Simulation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23015d65'/><circle cx='16' cy='16' r='7' fill='none' stroke='%235adbd6' stroke-width='3'/></svg>">
+</head>
+<body>
+
+<!-- Linke Navigationsleiste (horstOS) -->
+<nav class="navstack" aria-label="Hauptnavigation">
+  <div class="logo" title="horstOS">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg>
+  </div>
+  <button class="nav-it" title="Project Setup" disabled>
+    <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+  </button>
+  <button class="nav-it" title="3D Welt / Programmieren" disabled>
+    <svg viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5" stroke="currentColor" stroke-width="1.4" fill="none"/></svg>
+  </button>
+  <button class="nav-it act" title="Simulation" aria-current="page">
+    <svg viewBox="0 0 24 24"><path d="M5 12a7 7 0 1 1 2 4.9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M5 17v-5h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/></svg>
+    <i class="dot"></i>
+  </button>
+  <button class="nav-it" title="Process Control" disabled>
+    <svg viewBox="0 0 24 24"><path d="M4 17l5-6 4 3 7-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+</nav>
+
+<!-- Kopfzeile -->
+<header class="topbar">
+  <h1>horst<span>SIM</span></h1>
+  <p class="crumb">Simulation · MuJoCo-Physik in Echtzeit</p>
+  <div class="chips">
+    <span class="chip" id="modelstats">–</span>
+    <span class="chip" id="mjversion">MuJoCo …</span>
+  </div>
+</header>
+
+<!-- Hauptbereich -->
+<main class="stage">
+  <section id="viewport" class="viewport" aria-label="3D-Simulationsansicht">
+    <div class="hud tl"><span>Auswahl:</span><b id="selname">–</b></div>
+    <div class="hud tr"><b id="stFps">– fps</b></div>
+    <div class="corner c1"></div><div class="corner c2"></div><div class="corner c3"></div><div class="corner c4"></div>
+
+    <!-- Transportleiste -->
+    <div class="transport">
+      <button id="playBtn" class="tbtn big" title="Pause (Leertaste)">&#10074;&#10074;</button>
+      <button id="stepBtn" class="tbtn" title="Einzelschritt (S)">&#8618;</button>
+      <button id="resetBtn" class="tbtn" title="Zurücksetzen (R)">&#8635;</button>
+      <div class="tsep"></div>
+      <label class="tspeed">Tempo
+        <input id="speed" type="range" min="0.1" max="4" step="0.1" value="1">
+        <b id="speedVal">1.0×</b>
+      </label>
+      <div class="tsep"></div>
+      <button id="camBtn" class="tbtn" title="Kamera zurücksetzen">&#8982;</button>
+      <button id="trackBtn" class="tbtn" title="Kamera folgt Auswahl">&#9673;</button>
+      <button id="shotBtn" class="tbtn" title="Screenshot (PNG)">&#9635;</button>
+      <button id="recBtn" class="tbtn rec" title="Video aufnehmen">&#9679;</button>
+    </div>
+  </section>
+
+  <!-- Rechtes Panel-Dock -->
+  <aside class="dock">
+
+    <div class="panel" id="panelSzene">
+      <h3>Szene</h3>
+      <div class="pbody">
+        <select id="sceneSelect" class="input"></select>
+        <div class="btnrow">
+          <button id="wizardBtn" class="btn primary">Einrichtungs-Assistent</button>
+          <button id="fileBtn" class="btn ghost">Datei laden…</button>
+          <input id="fileInput" type="file" accept=".xml,.mjcf,.urdf" hidden>
+        </div>
+        <p class="hint">MJCF- oder URDF-Datei laden oder direkt ins 3D-Fenster ziehen. URDF ohne Mesh-Verweise wird direkt kompiliert.</p>
+        <div class="btnrow">
+          <button id="snapSave" class="btn ghost sm">Zustand merken</button>
+          <button id="snapLoad" class="btn ghost sm">Zustand laden</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="panelAkt">
+      <h3>Aktuatoren</h3>
+      <div class="pbody" id="actList"></div>
+    </div>
+
+    <div class="panel" id="panelPhysik">
+      <h3>Physik</h3>
+      <div class="pbody">
+        <div class="grid3">
+          <label>g<sub>x</sub><input id="pGx" class="input" data-phys type="number" step="0.1"></label>
+          <label>g<sub>y</sub><input id="pGy" class="input" data-phys type="number" step="0.1"></label>
+          <label>g<sub>z</sub><input id="pGz" class="input" data-phys type="number" step="0.1"></label>
+        </div>
+        <div class="grid2">
+          <label>Zeitschritt (s)<input id="pTs" class="input" data-phys type="number" step="0.0005" min="0.0001"></label>
+          <label>Solver-Iterationen<input id="pIter" class="input" data-phys type="number" step="1" min="1"></label>
+        </div>
+        <div class="grid2">
+          <label>Integrator
+            <select id="pInt" class="input" data-phys>
+              <option value="0">Euler</option><option value="1">RK4</option>
+              <option value="2">implicit</option><option value="3">implicitfast</option>
+            </select></label>
+          <label>Reibkegel
+            <select id="pCone" class="input" data-phys>
+              <option value="0">pyramidal</option><option value="1">elliptisch</option>
+            </select></label>
+        </div>
+        <div class="checks">
+          <label><input type="checkbox" id="pdContact" data-dsbl>Kontakte aus</label>
+          <label><input type="checkbox" id="pdGrav" data-dsbl>Gravitation aus</label>
+          <label><input type="checkbox" id="pdLimit" data-dsbl>Gelenkgrenzen aus</label>
+          <label><input type="checkbox" id="pdAct" data-dsbl>Aktuatorik aus</label>
+          <label><input type="checkbox" id="pdFric" data-dsbl>Reibungsverlust aus</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="panelVis">
+      <h3>Visualisierung</h3>
+      <div class="pbody">
+        <div class="checks">
+          <label><input type="checkbox" id="vCPoint" data-vis>Kontaktpunkte</label>
+          <label><input type="checkbox" id="vCForce" data-vis>Kontaktkräfte</label>
+          <label><input type="checkbox" id="vJoint" data-vis>Gelenkachsen</label>
+          <label><input type="checkbox" id="vActuator" data-vis>Aktoren</label>
+          <label><input type="checkbox" id="vInertia" data-vis>Trägheitsboxen</label>
+          <label><input type="checkbox" id="vCom" data-vis>Schwerpunkte</label>
+          <label><input type="checkbox" id="vPert" data-vis checked>Perturbationskraft</label>
+          <label><input type="checkbox" id="vTransp" data-vis>Transparent</label>
+          <label><input type="checkbox" id="vHull" data-vis>Konvexe Hüllen</label>
+        </div>
+        <div class="grid2">
+          <label>Koordinatenrahmen
+            <select id="visFrame" class="input">
+              <option value="0">keine</option><option value="1">Körper</option>
+              <option value="2">Geome</option><option value="3">Sites</option>
+              <option value="6">Welt</option>
+            </select></label>
+          <div class="checks">
+            <label><input type="checkbox" id="visShadow" checked>Schatten</label>
+            <label><input type="checkbox" id="visWire">Drahtgitter</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="panelStatus">
+      <h3>Status &amp; Sensorik</h3>
+      <div class="pbody">
+        <div class="kv"><span>Simulationszeit</span><b id="stTime">–</b></div>
+        <div class="kv"><span>Physik-Schritte</span><b id="stSteps">–</b></div>
+        <div class="kv"><span>Kontakte</span><b id="stCon">–</b></div>
+        <div class="kv"><span>Energie (pot | kin)</span><b id="stEnergy">–</b></div>
+        <h4>Sensoren</h4>
+        <div id="sensorList" class="scrollbox"></div>
+        <h4>Aktive Kontakte</h4>
+        <div id="contactList" class="scrollbox"></div>
+      </div>
+    </div>
+
+    <div class="panel" id="panelXml">
+      <h3>MJCF / XML</h3>
+      <div class="pbody">
+        <textarea id="xmleditor" spellcheck="false" aria-label="MJCF-Quelltext"></textarea>
+        <div id="xmlerror" class="xmlerror" role="alert"></div>
+        <div class="btnrow">
+          <button id="xmlApply" class="btn primary sm" title="Strg+Enter">Übernehmen &amp; laden</button>
+          <button id="xmlRevert" class="btn ghost sm">Verwerfen</button>
+          <button id="xmlDownload" class="btn ghost sm">Download</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel closed" id="panelHilfe">
+      <h3>Bedienung</h3>
+      <div class="pbody">
+        <div class="kv"><span>Kamera drehen</span><b>Linke Maustaste ziehen</b></div>
+        <div class="kv"><span>Kamera verschieben</span><b>Rechte Maustaste ziehen</b></div>
+        <div class="kv"><span>Zoom</span><b>Mausrad</b></div>
+        <div class="kv"><span>Körper auswählen</span><b>Doppelklick</b></div>
+        <div class="kv"><span>Körper ziehen</span><b>Strg + ziehen</b></div>
+        <div class="kv"><span>Körper rotieren</span><b>Strg + rechts ziehen</b></div>
+        <div class="kv"><span>Pause / Schritt / Reset</span><b>Leertaste / S / R</b></div>
+      </div>
+    </div>
+
+  </aside>
+</main>
+
+<!-- Assistent-Overlay -->
+<div id="wizard" class="wizard" role="dialog" aria-label="Einrichtungs-Assistent"></div>
+
+<!-- Lade-Overlay -->
+<div id="loading" class="loading">
+  <div class="load-card">
+    <div class="spin"></div>
+    <h2>horstSIM startet</h2>
+    <p>MuJoCo-Physik-Engine (WebAssembly) wird geladen …</p>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
