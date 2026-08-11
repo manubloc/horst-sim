@@ -4,10 +4,10 @@
 
 import { SimEngine } from './engine.js';
 import { SceneRenderer } from './renderer.js';
-import { duplicateFreeBody, removeFreeBody } from './sceneedit.js';
+import { duplicateFreeBody, removeFreeBody, addFreeBody } from './sceneedit.js';
 import { PickController } from './pick.js';
 import { attachInteraction } from './interaction.js';
-import { SCENES } from './scenes.js';
+import { SCENES, SCAN_CONFIG } from './scenes.js';
 import { mountWizard } from './wizard.js';
 
 const $ = s => document.querySelector(s);
@@ -194,6 +194,13 @@ function buildStaticPanels() {
     if (pick) pick.speed = v;
     $('#pickSpeedVal').textContent = '×' + v.toFixed(1);
   };
+  for (const [id, k] of [['#klXS', 'XS'], ['#klS', 'S'], ['#klM', 'M'], ['#klL', 'L']]) {
+    $(id).onchange = () => { SCAN_CONFIG.klassen[k] = $(id).checked; };
+  }
+  $('#scanAnzahl').onchange = () => {
+    SCAN_CONFIG.anzahl = Math.max(4, Math.min(16, Math.round(+$('#scanAnzahl').value || 10)));
+    $('#scanAnzahl').value = String(SCAN_CONFIG.anzahl);
+  };
   $('#spawnBtn').onclick = () => spawnParts();
   $('#clearBtn').onclick = () => clearLooseParts();
   $('#scanStartBtn').onclick = () => programmStart('scanmutti', p => p.startScan());
@@ -278,15 +285,25 @@ function initShell() {
   new ResizeObserver(messeLeisten).observe($('#topbar'));
   addEventListener('resize', messeLeisten);
 
-  const menu = $('#setMenu'), setBtn = $('#setBtn');
-  setBtn.onclick = ev => {
-    ev.stopPropagation();
-    setBtn.classList.toggle('on', menu.classList.toggle('open'));
-  };
+  // Aufklappmenüs der Kopfleiste: es ist immer höchstens eines offen.
+  const klapper = [['#setMenu', '#setBtn'], ['#tempoMenu', '#tempoBtn']].map(([m2, b2]) => ({ menu: $(m2), knopf: $(b2) }));
+  const zu = (ausser) => klapper.forEach(k => {
+    if (k === ausser) return;
+    k.menu.classList.remove('open'); k.knopf.classList.remove('on');
+  });
+  for (const k of klapper) {
+    k.knopf.onclick = ev => {
+      ev.stopPropagation();
+      zu(k);
+      k.knopf.classList.toggle('on', k.menu.classList.toggle('open'));
+    };
+  }
   document.addEventListener('pointerdown', ev => {
-    if (!menu.classList.contains('open')) return;
-    if (menu.contains(ev.target) || setBtn.contains(ev.target)) return;
-    menu.classList.remove('open'); setBtn.classList.remove('on');
+    for (const k of klapper) {
+      if (!k.menu.classList.contains('open')) continue;
+      if (k.menu.contains(ev.target) || k.knopf.contains(ev.target)) continue;
+      k.menu.classList.remove('open'); k.knopf.classList.remove('on');
+    }
   });
 
   if (matchMedia('(max-width: 940px)').matches) setMinimal(true);   // mobil: freie Sicht
@@ -701,25 +718,47 @@ function clearLooseParts() {
 
 function spawnParts() {
   if (!engine.loaded) return;
-  const want = [['spawnRot', 'kiste_rot_1'], ['spawnBlau', 'kiste_blau_1'], ['spawnKugel', 'kugel'], ['spawnWuerfel', 'fallwuerfel_1']];
+  // Eigene Bauteile statt Klone vorhandener Körper: der Spawner funktioniert
+  // damit in JEDER Szene (früher scheiterte er, sobald "kiste_rot_1" o. ä. fehlte).
+  // Die Namen richten sich nach der geladenen Szene, damit die Programme die
+  // abgeworfenen Teile auch wirklich aufsammeln (früher hießen sie immer
+  // "spawn_…" und wurden von keinem Programm erkannt).
+  const kugel = (f) => ({ name: `kugel_${f}`, type: 'sphere', size: '0.024',
+    rgba: f === 'rot' ? '0.88 0.16 0.14 1' : '0.15 0.38 0.95 1', mass: 0.10, friction: '0.65 0.003 0.00006' });
+  const wuerfel = (f) => ({ name: `wuerfel_${f}`, type: 'box', size: '0.026 0.026 0.026',
+    rgba: f === 'rot' ? '0.88 0.16 0.14 1' : '0.15 0.38 0.95 1', mass: 0.13, friction: '0.9 0.005 0.0002' });
+  const frei = (n, t, s, c, mss, fr) => ({ name: n, type: t, size: s, rgba: c, mass: mss, friction: fr });
+  const proSzene = {
+    kugelsort:   { spawnRot: kugel('rot'), spawnBlau: kugel('blau'),
+                   spawnKugel: kugel('rot'), spawnWuerfel: kugel('blau') },
+    palettieren: { spawnRot: wuerfel('rot'), spawnBlau: wuerfel('blau'),
+                   spawnKugel: wuerfel('rot'), spawnWuerfel: wuerfel('blau') },
+  };
+  const SORTEN = proSzene[aktiveSzene] ?? {
+    spawnRot:     frei('spawn_rot',     'box',    '0.024 0.024 0.024', '0.88 0.16 0.14 1', 0.12, '0.9 0.005 0.0002'),
+    spawnBlau:    frei('spawn_blau',    'box',    '0.024 0.024 0.024', '0.15 0.38 0.95 1', 0.12, '0.9 0.005 0.0002'),
+    spawnKugel:   frei('spawn_kugel',   'sphere', '0.022',             '0.74 1 0.99 1',    0.10, '0.5 0.0015 0.00003'),
+    spawnWuerfel: frei('spawn_wuerfel', 'box',    '0.028 0.028 0.028', '0.92 0.55 0.15 1', 0.14, '0.9 0.005 0.0002'),
+  };
   let xml = engine.xml;
   const q = Array.from(engine.data.qpos);
   let total = 0, made = 0;
-  for (const [id, tpl] of want) {
-    const n = Math.max(0, Math.min(15, Math.round(+$('#' + id).value || 0)));
+  for (const [id, sorte] of Object.entries(SORTEN)) {
+    const feld = $('#' + id);
+    const n = Math.max(0, Math.min(15, Math.round(+(feld?.value) || 0)));
     for (let i = 0; i < n && total < 30; i++, total++) {
-      const ang = Math.random() * Math.PI * 2, r = 0.16 + Math.random() * 0.40;
+      const ang = Math.random() * Math.PI * 2, r = 0.16 + Math.random() * 0.36;
       const pos = [
-        Math.max(-0.26, Math.min(0.62, Math.cos(ang) * r + 0.18)),
-        Math.max(-0.34, Math.min(0.34, Math.sin(ang) * r * 0.8)),
-        0.95 + Math.random() * 0.5,
+        Math.max(-0.24, Math.min(0.58, Math.cos(ang) * r + 0.20)),
+        Math.max(-0.30, Math.min(0.30, Math.sin(ang) * r * 0.8)),
+        0.95 + Math.random() * 0.45,
       ];
       let quat = [Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1];
       const nq = Math.hypot(...quat) || 1;
       quat = quat.map(x => x / nq);
       if (quat[0] < 0) quat = quat.map(x => -x);
       let res;
-      try { res = duplicateFreeBody(xml, tpl, { pos, quat }); }
+      try { res = addFreeBody(xml, sorte.name, { pos, quat }, sorte); }
       catch (e) { toast('Spawner: ' + e.message, true); return; }
       xml = res.xml;
       q.push(...pos, ...quat);
@@ -727,8 +766,10 @@ function spawnParts() {
     }
   }
   if (!made) { toast('Stückzahlen wählen.', true); return; }
+  const lief = pick?.laufendesProgramm?.() ?? null;   // Abwurf soll das Programm nicht abwürgen
   if (!loadXMLKeepState(xml, q)) return;
-  toast(made + ' Teile abgeworfen');
+  const weiter = lief ? pick.nimmWiederAuf(lief) : false;
+  toast(made + ' Teile abgeworfen' + (weiter ? ' · Programm läuft weiter' : ''));
   if (engine.paused) engine.paused = false;
 }
 

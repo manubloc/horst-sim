@@ -51,29 +51,29 @@ export function horstBody(o = {}) {
     `damping="${DAMP[i]}" armature="${ARM[i]}" frictionloss="0.05"/>`;
 
   const body = `
-    <body name="${p}horst_basis" pos="${v(pos)}" euler="0 0 ${zrot}" gravcomp="0">
+    <body name="${p}horst_basis" pos="${v(pos)}" euler="0 0 ${zrot}" gravcomp="${o.gravcomp ?? 0}">
       <geom type="box" size="0.085 0.085 0.011" pos="0 0 0.011" rgba="${HORST.black}" mass="1.2"/>
       <geom type="cylinder" size="0.075 0.037" pos="0 0 0.056" rgba="${HORST.dark}" mass="4.5"/>
-      <body name="${p}link_1" pos="${v(J[0].org)}">
+      <body name="${p}link_1" pos="${v(J[0].org)}" gravcomp="${o.gravcomp ?? 0}">
         ${joint(0)}
         <geom type="cylinder" size="0.062 0.075" pos="0 0 0.078" rgba="${HORST.teal}" mass="2.6"/>
         <geom type="cylinder" size="0.052 0.052" pos="0 0.004 0.251" euler="1.5708 0 0" rgba="${HORST.dark}" mass="0.9"/>
-        <body name="${p}link_2" pos="${v(J[1].org)}">
+        <body name="${p}link_2" pos="${v(J[1].org)}" gravcomp="${o.gravcomp ?? 0}">
           ${joint(1)}
           <geom type="capsule" fromto="0 0.052 0  0 0.052 0.274" size="0.045" rgba="${HORST.teal}" mass="2.2"/>
           <geom type="cylinder" size="0.046 0.03" pos="0 0.02 0.274" euler="1.5708 0 0" rgba="${HORST.dark}" mass="0.4"/>
-          <body name="${p}link_3" pos="${v(J[2].org)}">
+          <body name="${p}link_3" pos="${v(J[2].org)}" gravcomp="${o.gravcomp ?? 0}">
             ${joint(2)}
             <geom type="box" size="0.048 0.05 0.045" pos="0.012 0 0.012" rgba="${HORST.dark}" mass="1.4"/>
             <geom type="capsule" fromto="0 0 0  0.0855 0 0.0555" size="0.036" rgba="${HORST.black}" mass="0.4"/>
-            <body name="${p}link_4" pos="${v(J[3].org)}">
+            <body name="${p}link_4" pos="${v(J[3].org)}" gravcomp="${o.gravcomp ?? 0}">
               ${joint(3)}
               <geom type="capsule" fromto="0 0 0  0.1817 0 0" size="0.036" rgba="${HORST.teal}" mass="1.0"/>
               <geom type="cylinder" size="0.037 0.032" pos="0.1817 0 0" euler="1.5708 0 0" rgba="${HORST.dark}" mass="0.35"/>
-              <body name="${p}link_5" pos="${v(J[4].org)}">
+              <body name="${p}link_5" pos="${v(J[4].org)}" gravcomp="${o.gravcomp ?? 0}">
                 ${joint(4)}
                 <geom type="box" size="0.03 0.026 0.03" pos="0.018 0 0" rgba="${HORST.light}" mass="0.45"/>
-                <body name="${p}link_6" pos="${v(J[5].org)}">
+                <body name="${p}link_6" pos="${v(J[5].org)}" gravcomp="${o.gravcomp ?? 0}">
                   ${joint(5)}
                   <geom type="cylinder" size="0.031 0.011" pos="0.011 0 0" euler="0 1.5708 0" rgba="${HORST.dark}" mass="0.18"/>
                   <site name="${p}tcp" pos="0.022 0 0" size="0.008" rgba="0.74 1 0.99 0.9"/>
@@ -85,9 +85,11 @@ export function horstBody(o = {}) {
       </body>
     </body>`;
 
+  // steif: höhere Reglerverstärkung für Zellen mit Nutzlast am langen Arm
+  const kf = o.steif ?? 1;
   const actuators = J.map((j, i) =>
-    `<position name="${p}A${i + 1}" joint="${jn(i)}" kp="${KP[i]}" kv="${KV[i]}" ` +
-    `forcerange="-${FR[i]} ${FR[i]}" ctrlrange="${v(j.range)}"/>`).join('\n    ');
+    `<position name="${p}A${i + 1}" joint="${jn(i)}" kp="${(KP[i] * kf).toFixed(0)}" kv="${(KV[i] * Math.sqrt(kf)).toFixed(0)}" ` +
+    `forcerange="-${(FR[i] * kf).toFixed(0)} ${(FR[i] * kf).toFixed(0)}" ctrlrange="${v(j.range)}"/>`).join('\n    ');
 
   const sensors = `
     <framepos name="${p}tcp_pos" objtype="site" objname="${p}tcp"/>
@@ -345,6 +347,13 @@ export function scenePalettieren() {
   return h.open + world + '\n' + h.close(robot.actuators, robot.sensors, key);
 }
 
+/** Einstellbare Paketmischung für Scanmutti (wird von der Oberfläche gesetzt). */
+export const SCAN_CONFIG = {
+  klassen: { XS: true, S: true, M: true, L: true },
+  anzahl: 10,
+  rundlauf: true,                                   // linke Bahn führt zur Rampe zurück
+};
+
 export function sceneScanmutti() {
   const h = sceneHeader({ floorSize: 4 });
   const robot = horstBody({ pos: [0, 0, 0.37] });
@@ -359,19 +368,30 @@ export function sceneScanmutti() {
     return [+Math.cos(a / 2).toFixed(5), +Math.sin(a / 2).toFixed(5), 0, 0];
   };
 
-  /* Drei Paketgrößen; halbe Kantenmaße. Etikett sitzt auf der lokalen +Z-Fläche. */
+  /* Vier Größenklassen nach gängiger Paketstatistik, im Zellenmaßstab 1:3
+     (die Originalmaße 20×15×8 bis 50×40×30 cm sprengen eine 1,2-m-Zelle).
+     s = halbe Kantenmaße, et = Etikett, anteil = typische Häufigkeit. */
   const GROESSE = {
-    klein:  { s: [0.034, 0.026, 0.015], m: 0.13, et: [0.016, 0.011, 0.0020] },
-    mittel: { s: [0.046, 0.034, 0.019], m: 0.20, et: [0.021, 0.014, 0.0022] },
-    gross:  { s: [0.056, 0.042, 0.024], m: 0.28, et: [0.026, 0.018, 0.0024] },
+    XS: { lbh: '20×15×8',  s: [0.033, 0.025, 0.013], m: 0.14, et: [0.015, 0.010, 0.0020], anteil: 12 },
+    S:  { lbh: '30×20×12', s: [0.050, 0.033, 0.020], m: 0.24, et: [0.022, 0.014, 0.0022], anteil: 23 },
+    M:  { lbh: '40×30×20', s: [0.067, 0.050, 0.033], m: 0.42, et: [0.030, 0.020, 0.0024], anteil: 30 },
+    L:  { lbh: '50×40×30', s: [0.083, 0.067, 0.050], m: 0.66, et: [0.038, 0.026, 0.0026], anteil: 35 },
   };
-  const reihe = ['mittel', 'gross', 'klein', 'mittel', 'klein', 'gross', 'mittel', 'klein', 'gross', 'mittel'];
+  const cfg = SCAN_CONFIG;
+  const aktiv = Object.keys(GROESSE).filter(k => cfg.klassen[k]);
+  const klassen = aktiv.length ? aktiv : ['S'];
+  /* Reihenfolge nach Anteilen: je Klasse so viele Plätze, wie ihr Anteil hergibt. */
+  const summe = klassen.reduce((a, k) => a + GROESSE[k].anteil, 0);
+  const topf = [];
+  klassen.forEach(k => { const n = Math.max(1, Math.round(cfg.anzahl * GROESSE[k].anteil / summe));
+                         for (let i = 0; i < n; i++) topf.push(k); });
+  const reihe = Array.from({ length: cfg.anzahl }, (_, i) => topf[(i * 3 + 1) % topf.length]);
   const pakete = reihe.map((g, i) => {
     const G = GROESSE[g];
-    const y = 0.245 + i * 0.115;
+    const y = 0.245 + i * 0.135;
     const kopfueber = i % 3 !== 0;                   // Etikett zufällig unten
     return {
-      name: `paket_${i + 1}`, groesse: g, G,
+      name: `paket_${g}_${i + 1}`, groesse: g, G,
       pos: [0.30 + (i % 2 ? 0.03 : -0.03), y, i === 0 ? 0.370 + G.s[2] + 0.002 : zOnRamp(y, G.s[2])],
       quat: i === 0 ? (kopfueber ? [0, 1, 0, 0] : [1, 0, 0, 0]) : qT(kopfueber ? Math.PI : 0),
     };
@@ -422,21 +442,49 @@ export function sceneScanmutti() {
       <geom type="box" size="0.075 0.006 0.030" pos="0 -0.091 0.038" rgba="0.35 1 0.98 0.30"/>
     </body>
 
-    <!-- Förderband (-Y), 1,24 m lang, endet über der Zielbox -->
-    <body name="band" pos="0.52 -0.34 0">
-      <geom type="box" size="0.62 0.10 0.012" pos="0 0 0.402" rgba="0.13 0.15 0.16 1" friction="0.5 0.004 0.0001"/>
-      <geom type="box" size="0.62 0.006 0.022" pos="0 0.106 0.436"  rgba="0.05 0.35 0.36 1"/>
-      <geom type="box" size="0.62 0.006 0.022" pos="0 -0.106 0.436" rgba="0.05 0.35 0.36 1"/>
-      <geom type="cylinder" size="0.026 0.10" pos="0.62 0 0.402"  euler="1.5708 0 0" rgba="0.35 1 0.98 0.5"/>
-      <geom type="cylinder" size="0.026 0.10" pos="-0.62 0 0.402" euler="1.5708 0 0" rgba="0.35 1 0.98 0.5"/>
-      <geom type="box" size="0.02 0.02 0.195" pos="0.56 0.09 0.195"  rgba="0.12 0.13 0.14 1"/>
-      <geom type="box" size="0.02 0.02 0.195" pos="0.56 -0.09 0.195" rgba="0.12 0.13 0.14 1"/>
-      <geom type="box" size="0.02 0.02 0.195" pos="-0.40 0.09 0.195"  rgba="0.12 0.13 0.14 1"/>
-      <geom type="box" size="0.02 0.02 0.195" pos="-0.40 -0.09 0.195" rgba="0.12 0.13 0.14 1"/>
+    <!-- Hauptband (+X) mit Weiche bei x = 0,70. Am Weichenfeld fehlen die
+         Seitenwände, damit Pakete nach links und rechts ausgeschleust werden. -->
+    <body name="band" pos="0 -0.34 0">
+      <geom type="box" size="0.31 0.10 0.012" pos="0.31 0 0.402" rgba="0.13 0.15 0.16 1" friction="0.5 0.004 0.0001"/>
+      <geom type="box" size="0.31 0.006 0.022" pos="0.31 0.106 0.436"  rgba="0.05 0.35 0.36 1"/>
+      <geom type="box" size="0.31 0.006 0.022" pos="0.31 -0.106 0.436" rgba="0.05 0.35 0.36 1"/>
+      <geom type="box" size="0.26 0.10 0.012" pos="0.96 0 0.402" rgba="0.13 0.15 0.16 1" friction="0.5 0.004 0.0001"/>
+      <geom type="box" size="0.26 0.006 0.022" pos="0.96 0.106 0.436"  rgba="0.05 0.35 0.36 1"/>
+      <geom type="box" size="0.26 0.006 0.022" pos="0.96 -0.106 0.436" rgba="0.05 0.35 0.36 1"/>
+      <geom type="cylinder" size="0.026 0.10" pos="1.22 0 0.402" euler="1.5708 0 0" rgba="0.35 1 0.98 0.5"/>
+      <geom type="cylinder" size="0.026 0.10" pos="0.00 0 0.402" euler="1.5708 0 0" rgba="0.35 1 0.98 0.5"/>
+      <geom type="box" size="0.02 0.02 0.195" pos="0.06 0.09 0.195"  rgba="0.12 0.13 0.14 1"/>
+      <geom type="box" size="0.02 0.02 0.195" pos="0.06 -0.09 0.195" rgba="0.12 0.13 0.14 1"/>
+      <geom type="box" size="0.02 0.02 0.195" pos="1.16 0.09 0.195"  rgba="0.12 0.13 0.14 1"/>
+      <geom type="box" size="0.02 0.02 0.195" pos="1.16 -0.09 0.195" rgba="0.12 0.13 0.14 1"/>
     </body>
 
-    <!-- Zielbox am Bandende: ist sie voll, endet das Programm -->
-    <body name="zielbox" pos="1.30 -0.34 0">
+    <!-- Weichenfeld: Drehteller-Optik, hier entscheidet sich die Bahn -->
+    <body name="weiche" pos="0.70 -0.34 0">
+      <geom type="box" size="0.09 0.10 0.012" pos="0 0 0.402" rgba="0.05 0.35 0.36 1" friction="0.45 0.004 0.0001"/>
+      <geom type="cylinder" size="0.062 0.0035" pos="0 0 0.4155" rgba="0.35 1 0.98 0.30"/>
+    </body>
+
+    <!-- Abzweig RECHTS (−Y): endet in der Sammelbox -->
+    <body name="bahn_rechts" pos="0.70 -0.68 0">
+      <geom type="box" size="0.09 0.24 0.012" pos="0 0 0.402" rgba="0.13 0.15 0.16 1" friction="0.5 0.004 0.0001"/>
+      <geom type="box" size="0.006 0.24 0.022" pos="0.096 0 0.436"  rgba="0.05 0.35 0.36 1"/>
+      <geom type="box" size="0.006 0.24 0.022" pos="-0.096 0 0.436" rgba="0.05 0.35 0.36 1"/>
+      <geom type="box" size="0.02 0.02 0.195" pos="0.07 -0.21 0.195" rgba="0.12 0.13 0.14 1"/>
+      <geom type="box" size="0.02 0.02 0.195" pos="-0.07 -0.21 0.195" rgba="0.12 0.13 0.14 1"/>
+    </body>
+
+    <!-- Abzweig LINKS (+Y): Rundlauf, führt hinter dem Roboter zur Rampe zurück -->
+    <body name="bahn_links" pos="0.70 0.12 0">
+      <geom type="box" size="0.09 0.34 0.012" pos="0 0 0.402" rgba="0.13 0.15 0.16 1" friction="0.5 0.004 0.0001"/>
+      <geom type="box" size="0.006 0.34 0.022" pos="0.096 0 0.436"  rgba="0.05 0.35 0.36 1"/>
+      <geom type="box" size="0.006 0.34 0.022" pos="-0.096 0 0.436" rgba="0.05 0.35 0.36 1"/>
+      <geom type="box" size="0.02 0.02 0.195" pos="0.07 0.31 0.195" rgba="0.12 0.13 0.14 1"/>
+      <geom type="box" size="0.02 0.02 0.195" pos="-0.07 0.31 0.195" rgba="0.12 0.13 0.14 1"/>
+    </body>
+
+    <!-- Zielbox geradeaus: ist sie voll, endet das Programm -->
+    <body name="zielbox" pos="1.42 -0.34 0">
       <geom type="box" size="0.17 0.15 0.008" pos="0 0 0.150" rgba="0.42 0.32 0.20 1" friction="0.8 0.004 0.0001"/>
       <geom type="box" size="0.17 0.008 0.085" pos="0 0.158 0.243"  rgba="0.55 0.42 0.26 0.85"/>
       <geom type="box" size="0.17 0.008 0.085" pos="0 -0.158 0.243" rgba="0.55 0.42 0.26 0.85"/>
@@ -446,6 +494,19 @@ export function sceneScanmutti() {
       <geom type="box" size="0.02 0.02 0.071" pos="0.15 -0.13 0.071"  rgba="0.12 0.13 0.14 1"/>
       <geom type="box" size="0.02 0.02 0.071" pos="-0.15 0.13 0.071"  rgba="0.12 0.13 0.14 1"/>
       <geom type="box" size="0.02 0.02 0.071" pos="-0.15 -0.13 0.071" rgba="0.12 0.13 0.14 1"/>
+    </body>
+
+    <!-- Sammelbox der rechten Bahn -->
+    <body name="boxrechts" pos="0.70 -1.06 0">
+      <geom type="box" size="0.15 0.14 0.008" pos="0 0 0.150" rgba="0.30 0.30 0.34 1" friction="0.8 0.004 0.0001"/>
+      <geom type="box" size="0.15 0.008 0.085" pos="0 0.148 0.243"  rgba="0.42 0.42 0.48 0.85"/>
+      <geom type="box" size="0.15 0.008 0.085" pos="0 -0.148 0.243" rgba="0.42 0.42 0.48 0.85"/>
+      <geom type="box" size="0.008 0.156 0.085" pos="0.158 0 0.243"  rgba="0.42 0.42 0.48 0.85"/>
+      <geom type="box" size="0.008 0.156 0.085" pos="-0.158 0 0.243" rgba="0.42 0.42 0.48 0.85"/>
+      <geom type="box" size="0.02 0.02 0.071" pos="0.13 0.12 0.071"   rgba="0.12 0.13 0.14 1"/>
+      <geom type="box" size="0.02 0.02 0.071" pos="0.13 -0.12 0.071"  rgba="0.12 0.13 0.14 1"/>
+      <geom type="box" size="0.02 0.02 0.071" pos="-0.13 0.12 0.071"  rgba="0.12 0.13 0.14 1"/>
+      <geom type="box" size="0.02 0.02 0.071" pos="-0.13 -0.12 0.071" rgba="0.12 0.13 0.14 1"/>
     </body>
     ${robot.body}
     ${paketXml}`;
@@ -500,6 +561,130 @@ export function sceneStack() {
 }
 
 /* Humanoid (DeepMind-Beispiel) wird zur Laufzeit aus models/humanoid.xml geladen. */
+
+/**
+ * Hallenlogistik: Auf einem Rundlauf-Förderband kreisen Pakete. Eine fahrbare
+ * Hubplattform mit zwei HORST-Armen fährt an das Band, greift die Pakete
+ * beidseitig wie ein Mensch mit zwei Armen und stellt sie in die Regale.
+ *
+ * Aufbau der Plattform: Schlitten in X und Y, darauf ein Hubschlitten in Z,
+ * darauf beide Roboterbasen (Präfixe "A_" und "B_").
+ */
+export function sceneHalle() {
+  const h = sceneHeader({ floorSize: 7 });
+  const BAND_Z = 0.62;                              // Oberkante Bandumlauf
+  const X0 = 1.15, X1 = 3.15, Y0 = -0.95, Y1 = 0.95; // Mittellinie des Rundlaufs
+  const BW = 0.24;                                  // halbe Bandbreite
+
+  /* Vier gerade Bandabschnitte bilden den Umlauf. */
+  const seg = (name, x, y, sx, sy) => `
+    <body name="${name}" pos="${x} ${y} ${BAND_Z - 0.03}">
+      <geom type="box" size="${sx} ${sy} 0.03" rgba="0.16 0.19 0.21 1" friction="0.25 0.002 0.0001"/>
+      <geom type="box" size="${sx} 0.012 0.035" pos="0 ${sy - 0.012} 0.032" rgba="0.35 0.62 0.63 0.55"/>
+      <geom type="box" size="${sx} 0.012 0.035" pos="0 ${-(sy - 0.012)} 0.032" rgba="0.35 0.62 0.63 0.55"/>
+    </body>`;
+  const segQ = (name, x, y, sx, sy) => `
+    <body name="${name}" pos="${x} ${y} ${BAND_Z - 0.03}">
+      <geom type="box" size="${sx} ${sy} 0.03" rgba="0.16 0.19 0.21 1" friction="0.25 0.002 0.0001"/>
+      <geom type="box" size="0.012 ${sy} 0.035" pos="${sx - 0.012} 0 0.032" rgba="0.35 0.62 0.63 0.55"/>
+      <geom type="box" size="0.012 ${sy} 0.035" pos="${-(sx - 0.012)} 0 0.032" rgba="0.35 0.62 0.63 0.55"/>
+    </body>`;
+  const mx = (X0 + X1) / 2, my = (Y0 + Y1) / 2, hx = (X1 - X0) / 2, hy = (Y1 - Y0) / 2;
+  const band = `
+    ${seg('band_vorn', mx, Y0, hx + BW, BW)}
+    ${seg('band_hinten', mx, Y1, hx + BW, BW)}
+    ${segQ('band_links', X0, my, BW, hy - BW)}
+    ${segQ('band_rechts', X1, my, BW, hy - BW)}
+    <body name="bandgestell" pos="0 0 0">
+      ${[[X0, Y0], [X1, Y0], [X0, Y1], [X1, Y1]].map(([x, y]) => `
+      <geom type="cylinder" size="0.035 ${(BAND_Z - 0.06) / 2}" pos="${x} ${y} ${(BAND_Z - 0.06) / 2}" rgba="0.12 0.14 0.15 1"/>`).join('')}
+    </body>`;
+
+  /* Pakete auf dem Umlauf, gleichmäßig verteilt. */
+  const G = { klein: [0.055, 0.042, 0.030], gross: [0.085, 0.062, 0.045] };
+  const N = 12;
+  const umfang = 2 * (hx * 2 + hy * 2);
+  const punkt = (t) => {                            // t ∈ [0,1) entlang des Umlaufs
+    const u = t * umfang, a = hx * 2, b = a + hy * 2, c = b + hx * 2;
+    if (u < a) return [X0 + u, Y0];
+    if (u < b) return [X1, Y0 + (u - a)];
+    if (u < c) return [X1 - (u - b), Y1];
+    return [X0, Y1 - (u - c)];
+  };
+  const pakete = Array.from({ length: N }, (_, i) => {
+    const gross = i % 3 === 2;
+    const g = gross ? G.gross : G.klein;
+    const [x, y] = punkt((i + 0.5) / N);
+    return { name: `hpaket_${gross ? 'gross' : 'klein'}_${i + 1}`, s: g, m: gross ? 0.5 : 0.22,
+             pos: [x, y, BAND_Z + g[2] + 0.004] };
+  });
+  const paketXml = pakete.map(p => `
+    <body name="${p.name}" pos="${v(p.pos)}">
+      <freejoint/>
+      <geom type="box" size="${p.s.join(' ')}" rgba="0.72 0.55 0.34 1" mass="${p.m}" friction="0.35 0.003 0.0001"/>
+      <geom type="box" size="${(p.s[0] * 0.5).toFixed(4)} ${(p.s[1] * 0.5).toFixed(4)} 0.0022"
+            pos="0 0 ${(p.s[2] + 0.0016).toFixed(4)}" rgba="0.97 0.97 0.94 1" mass="0.001"/>
+    </body>`).join('');
+
+  /* Regale: drei Fächerebenen, links und rechts der Fahrbahn. */
+  const regal = (name, x, y, zrot) => `
+    <body name="${name}" pos="${x} ${y} 0" euler="0 0 ${zrot}">
+      ${[0.34, 0.72, 1.10].map((z, i) => `
+      <geom type="box" size="0.34 0.20 0.012" pos="0 0 ${z}" rgba="0.62 0.47 0.28 1" friction="0.8 0.004 0.0002"/>
+      <geom type="box" size="0.34 0.012 0.030" pos="0 0.19 ${z + 0.04}" rgba="0.52 0.39 0.23 1"/>`).join('')}
+      ${[[-0.32, -0.18], [0.32, -0.18], [-0.32, 0.18], [0.32, 0.18]].map(([dx, dy]) => `
+      <geom type="box" size="0.022 0.022 0.62" pos="${dx} ${dy} 0.62" rgba="0.34 0.26 0.16 1"/>`).join('')}
+    </body>`;
+
+  /* Fahrbare Hubplattform mit zwei Armen. */
+  /* Beide Arme nebeneinander in Fahrtrichtung montiert und zum Band gedreht:
+     so fassen sie einen Karton links und rechts an wie ein Mensch. */
+  const armA = horstBody({ prefix: 'A_', pos: [0.26, 0, 0.10], zrot: 1.5708, steif: 6, gravcomp: 1 });
+  const armB = horstBody({ prefix: 'B_', pos: [-0.26, 0, 0.10], zrot: 1.5708, steif: 6, gravcomp: 1 });
+  const plattform = `
+    <body name="aggregat" pos="0.30 0 0">
+      <joint name="Px" type="slide" axis="1 0 0" range="-0.35 2.6" damping="900" armature="6"/>
+      <joint name="Py" type="slide" axis="0 1 0" range="-1.62 -0.9" damping="900" armature="6"/>
+      <geom type="box" size="0.42 0.20 0.055" pos="0 0 0.10" rgba="0.13 0.15 0.16 1" mass="42"
+            contype="0" conaffinity="0"/>
+      ${[[-0.34, -0.15], [0.34, -0.15], [-0.34, 0.15], [0.34, 0.15]].map(([x, y]) => `
+      <geom type="cylinder" size="0.045 0.028" pos="${x} ${y} 0.045" euler="1.5708 0 0" rgba="0.08 0.09 0.10 1" mass="1.5"
+            contype="0" conaffinity="0"/>`).join('')}
+      <body name="hubschlitten" pos="0 0 0.155">
+        <joint name="Pz" type="slide" axis="0 0 1" range="0 0.75" damping="1200" armature="8"/>
+        <geom type="box" size="0.38 0.17 0.028" pos="0 0 0.028" rgba="0.20 0.55 0.57 1" mass="14"
+              contype="0" conaffinity="0"/>
+        <geom type="box" size="0.05 0.05 0.10" pos="0 0 -0.06" rgba="0.10 0.12 0.13 1" mass="2"
+              contype="0" conaffinity="0"/>
+        ${armA.body}
+        ${armB.body}
+      </body>
+    </body>`;
+
+  /* Reihenfolge ist bindend: Der Keyframe listet erst die Gelenke der Maschinen,
+     dann die freien Körper – also muss die Plattform VOR den Paketen stehen. */
+  const world = `
+    ${band}
+    ${regal('regal_1', 0.35, -2.00, 0)}
+    ${regal('regal_2', 1.55, -2.00, 0)}
+    ${regal('regal_3', 2.75, -2.00, 0)}
+    ${plattform}
+    ${paketXml}`;
+
+  const akt = `
+    <position name="APx" joint="Px" kp="26000" kv="3200" ctrlrange="-0.35 2.6" forcerange="-9000 9000"/>
+    <position name="APy" joint="Py" kp="26000" kv="3200" ctrlrange="-1.62 -0.9" forcerange="-9000 9000"/>
+    <position name="APz" joint="Pz" kp="30000" kv="3600" ctrlrange="0 0.75" forcerange="-12000 12000"/>
+    ${armA.actuators}
+    ${armB.actuators}`;
+  /* Ruhelage: Plattform steht VOR der vorderen Bandkante. Stand sie in der
+     Mitte, steckte die Basis von Arm A im linken Bandrahmen (55 mm tief) –
+     die Zwangskraft hielt dann das gesamte Fahrwerk fest. */
+  const key = buildKeyframe(
+    [{ home: [1.25, -1.30] }, { home: [0.30] }, { home: HORST600_HOME }, { home: HORST600_HOME }],
+    pakete);
+  return h.open + world + '\n' + h.close(akt, armA.sensors + armB.sensors, key);
+}
 
 export const SCENES = [
   { id: 'horst_cell', name: 'HORST600 – Arbeitszelle', make: sceneHorstCell },

@@ -20,19 +20,22 @@ function waechter(e) {
     if (n.includes('link_') || n.includes('horst_basis')) roboter.add(i);
   }
   const treffer = new Map();
-  let zaehler = 0;
+  let zaehler = 0, gelesen = 0, fehler = 0;
   return {
     pruefe() {
       // Stichprobe statt jedes Bild: jeder Kontaktzugriff legt in der Bindung
       // ein Wrapper-Objekt an, das nicht freigegeben wird (sonst 2-GB-Limit).
-      if ((zaehler = (zaehler + 1) % 12) !== 0) return;
+      // Jeder Kontaktzugriff legt in der Bindung ein Objekt an, das sie nicht
+      // wieder freigibt (kein delete). Deshalb selten und begrenzt abtasten.
+      if ((zaehler = (zaehler + 1) % 45) !== 0) return;
       const d = e.data;
-      const n = Math.min(d.ncon, 80);
+      const n = Math.min(d.ncon, 40);
       for (let c = 0; c < n; c++) {
         let k = null;
         try {
-          k = d.contact[c];
+          k = d.contact.get ? d.contact.get(c) : d.contact[c];   // .get(i) ist der gültige Zugriff
           if (!k) continue;
+          gelesen++;
           const b1 = md.geom_bodyid[k.geom1], b2 = md.geom_bodyid[k.geom2];
           const r1 = roboter.has(b1), r2 = roboter.has(b2);
           if (r1 === r2) continue;
@@ -40,15 +43,15 @@ function waechter(e) {
           if (!HINDERNIS.test(gegner)) continue;
           if (k.dist > -0.0015) continue;               // Streifkontakte ignorieren
           treffer.set(gegner, Math.min(treffer.get(gegner) ?? 0, k.dist));
-        } catch { /* Kontakt zwischenzeitlich ungültig */ }
-        finally { k?.delete?.(); }                      // Wrapper freigeben, sonst wächst der Heap
+        } catch (err) { fehler++; }
       }
     },
     bericht() {
+      if (!zaehler) return 'Wächter lief nie';
       const t = [...treffer.entries()];
       return t.length
         ? `KOLLISION: ${t.map(([n, d]) => `${n} (${(d * 1000).toFixed(1)} mm)`).join(', ')}`
-        : 'kollisionsfrei ✓';
+        : `kollisionsfrei (${gelesen} Kontaktpaare geprüft, ${fehler} Lesefehler)`;
     },
   };
 }

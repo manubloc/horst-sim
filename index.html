@@ -41,11 +41,32 @@
   <span class="chip"><b id="stFps">– fps</b></span>
   <button class="iconbtn" id="infoBtn" aria-label="Bedienung"
     data-tip="Kamera drehen: linke Maustaste ziehen&#10;Kamera verschieben: rechte Maustaste ziehen&#10;Zoom: Mausrad · mobil: zwei Finger&#10;Objekt wählen: anklicken&#10;Objekt ziehen: direkt ziehen (rechts = drehen)&#10;Pause / Schritt / Reset: Leertaste · S · R&#10;Kopieren / Einfügen / Löschen: Strg+C · Strg+V · Entf">i</button>
+  <button class="iconbtn" id="tempoBtn" aria-label="Tempo" data-tip="Tempo: Simulation und Programm">
+    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+      <path d="M12 20a8 8 0 1 1 8-8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      <path d="M12 12l4.6-3.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      <circle cx="12" cy="12" r="1.7" fill="currentColor"/>
+    </svg>
+  </button>
   <button class="iconbtn" id="setBtn" aria-label="Einstellungen" data-tip="Globale Einstellungen">⚙</button>
   <button class="iconbtn" id="minAllBtn" aria-label="Alles minimieren" data-tip="Alles ausblenden bis auf die Menüleisten">⤢</button>
 </header>
 
 <!-- ============ Einstellungs-Flyout ============ -->
+<div class="flyout tempo" id="tempoMenu" role="dialog" aria-label="Tempo">
+  <h4>Simulationstempo</h4>
+  <label class="rowlab wide">Physik
+    <input id="speed" type="range" min="0.1" max="4" step="0.1" value="1">
+    <b id="speedVal">1.0×</b>
+  </label>
+  <h4>Programmtempo</h4>
+  <label class="rowlab wide">Ablauf
+    <input id="pickSpeed" type="range" min="0.5" max="3" step="0.1" value="1">
+    <b id="pickSpeedVal">×1.0</b>
+  </label>
+  <p class="appdesc">Physik dehnt oder rafft die Zeit der Simulation, Ablauf steuert nur die Verfahrgeschwindigkeit des Roboters.</p>
+</div>
+
 <div class="flyout" id="setMenu" role="dialog" aria-label="Globale Einstellungen">
   <h4>Szene</h4>
   <select id="sceneSelect" class="input"></select>
@@ -109,6 +130,15 @@
           <button class="info" data-tip="Pakete verschiedener Größe rutschen über die Rampe. Der Roboter prüft das Etikett, kippt es bei Bedarf über die Wendekante und legt es aufs Förderband. Ist die Zielbox am Bandende voll, endet das Programm.">i</button>
         </header>
         <p class="appdesc">Pakete prüfen, wenden und aufs Förderband legen.</p>
+        <div class="klassen">
+          <label class="chk"><input type="checkbox" id="klXS" checked> XS <span>20×15×8 · 12 %</span></label>
+          <label class="chk"><input type="checkbox" id="klS" checked> S <span>30×20×12 · 23 %</span></label>
+          <label class="chk"><input type="checkbox" id="klM" checked> M <span>40×30×20 · 30 %</span></label>
+          <label class="chk"><input type="checkbox" id="klL" checked> L <span>50×40×30 · 35 %</span></label>
+        </div>
+        <label class="rowlab">Pakete im Umlauf
+          <input id="scanAnzahl" class="input" type="number" min="4" max="16" value="10">
+        </label>
         <div class="btnrow">
           <button id="scanStartBtn" class="btn pick amber">Pakete scannen</button>
         </div>
@@ -119,10 +149,6 @@
 
     <div class="runbar">
       <button id="pickStopBtn" class="btn ghost">Programm stoppen</button>
-      <label class="rowlab wide">Programmtempo
-        <input id="pickSpeed" type="range" min="0.5" max="3" step="0.1" value="1">
-        <b id="pickSpeedVal">×1.0</b>
-      </label>
       <div class="kv grow"><span>Status</span><b id="pickStatus">bereit</b></div>
     </div>
   </div>
@@ -304,10 +330,6 @@
     <button id="playBtn" class="tbtn big tip-up" data-tip="Pause / Fortsetzen (Leertaste)">&#10074;&#10074;</button>
     <button id="stepBtn" class="tbtn tip-up" data-tip="Einzelschritt (S)">&#8618;</button>
     <button id="resetBtn" class="tbtn tip-up" data-tip="Szene zurücksetzen (R)">&#8635;</button>
-    <label class="tspeed hide-sm">Tempo
-      <input id="speed" type="range" min="0.1" max="4" step="0.1" value="1">
-      <b id="speedVal">1.0×</b>
-    </label>
     <button id="camBtn" class="tbtn opt2 tip-up" data-tip="Kamera zurücksetzen">&#8982;</button>
     <button id="trackBtn" class="tbtn opt2 tip-up" data-tip="Kamera folgt der Auswahl">&#9673;</button>
     <button id="shotBtn" class="tbtn opt tip-up hide-sm" data-tip="Screenshot als PNG">&#9635;</button>

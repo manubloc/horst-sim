@@ -56,6 +56,30 @@ export function duplicateFreeBody(xml, srcName, pose) {
   return { xml: out, newName };
 }
 
+/**
+ * Neues freies Objekt einfügen – unabhängig davon, ob eine Vorlage in der
+ * Szene existiert. (Der Spawner klonte früher feste Vorlagen wie
+ * "kiste_rot_1"; in Szenen ohne diese Körper schlug er deshalb fehl.)
+ * geom: { type, size, rgba, mass, friction }
+ */
+export function addFreeBody(xml, wunschName, pose, geom) {
+  const name = /\sname="[^"]*"/.test(xml) && new RegExp(`name="${wunschName}"`).test(xml)
+    ? uniqueName(xml, wunschName) : wunschName;
+  const posStr = pose.pos.map(f5).join(' ');
+  const quatStr = pose.quat.map(f5).join(' ');
+  const reib = geom.friction ? ` friction="${geom.friction}"` : '';
+  const block = `<body name="${name}" pos="${posStr}" quat="${quatStr}">
+      <freejoint/>
+      <geom type="${geom.type}" size="${geom.size}" rgba="${geom.rgba}" mass="${geom.mass ?? 0.12}"${reib}/>
+    </body>`;
+  const wbEnd = xml.lastIndexOf('</worldbody>');
+  if (wbEnd < 0) throw new Error('Kein </worldbody> gefunden.');
+  let out = xml.slice(0, wbEnd) + '    ' + block + '\n  ' + xml.slice(wbEnd);
+  out = out.replace(/(<key\s[^>]*qpos=")([^"]*)(")/, (all, a, q, c) =>
+    a + (q.trim() + ' ' + [...pose.pos, ...pose.quat].map(f5).join(' ')).trim() + c);
+  return { xml: out, newName: name };
+}
+
 /** Freies Objekt entfernen; qadr = qpos-Startadresse seines Freejoints. */
 export function removeFreeBody(xml, name, qadr) {
   const hit = findBodyBlock(xml, name);

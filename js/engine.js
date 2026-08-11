@@ -33,7 +33,7 @@ export class SimEngine {
   }
 
   constructor(mujoco) {
-    this.attachInfo = null;   // Vakuumgreifer: { qadr, dofadr, siteId, relp, relq }
+    this.attachments = [];    // Vakuumgreifer, mehrere gleichzeitig: { bodyId, qadr, dofadr, siteId, relp, relq }
     this.onPreStep = null;    // zusätzlicher Antrieb vor jedem Schritt (z. B. Förderband)
     this._ikData = null;      // Scratch-MjData für die IK (pick.js)
     this.mujoco = mujoco;
@@ -97,7 +97,7 @@ export class SimEngine {
   _freeAll() {
     this._ikData?.delete?.();
     this._ikData = null;
-    this.attachInfo = null;
+    this.attachments = [];
     for (const k of ['scene', 'vopt', 'pert', 'cam', 'data', 'model']) {
       if (this[k]) { try { this[k].delete(); } catch (_) {} this[k] = null; }
     }
@@ -112,17 +112,24 @@ export class SimEngine {
     const s3 = siteId * 3, s9 = siteId * 9, b3 = bodyId * 3, b4 = bodyId * 4;
     const sm = d.site_xmat, sp = d.site_xpos;
     const dx = [d.xpos[b3] - sp[s3], d.xpos[b3 + 1] - sp[s3 + 1], d.xpos[b3 + 2] - sp[s3 + 2]];
-    const relp = [                                    // R_site^T · dx
+    const relp = [
       sm[s9] * dx[0] + sm[s9 + 3] * dx[1] + sm[s9 + 6] * dx[2],
       sm[s9 + 1] * dx[0] + sm[s9 + 4] * dx[1] + sm[s9 + 7] * dx[2],
       sm[s9 + 2] * dx[0] + sm[s9 + 5] * dx[1] + sm[s9 + 8] * dx[2],
     ];
     const qs = mat3ToQuat(sm, s9);
     const relq = quatMul(quatInv(qs), [d.xquat[b4], d.xquat[b4 + 1], d.xquat[b4 + 2], d.xquat[b4 + 3]]);
-    this.attachInfo = { qadr, dofadr, siteId, relp, relq };
+    // Ein Objekt hängt immer nur an einem Greifer, ein Greifer hält immer nur eines.
+    this.attachments = this.attachments.filter(a => a.bodyId !== bodyId && a.siteId !== siteId);
+    this.attachments.push({ bodyId, qadr, dofadr, siteId, relp, relq });
   }
 
-  releaseBody() { this.attachInfo = null; }
+  /** Ohne Angabe: alles loslassen. Mit bodyId/siteId: gezielt eines. */
+  releaseBody(bodyId = null, siteId = null) {
+    if (bodyId === null && siteId === null) { this.attachments = []; return; }
+    this.attachments = this.attachments.filter(a =>
+      !(bodyId !== null && a.bodyId === bodyId) && !(siteId !== null && a.siteId === siteId));
+  }
 
   /** Vor jedem Physikschritt: Greifer-Kopplung und angemeldete Antriebe. */
   _preStep() {
@@ -131,16 +138,17 @@ export class SimEngine {
   }
 
   _applyAttach() {
-    const a = this.attachInfo;
-    if (!a || !this.loaded) return;
-    const d = this.data, s3 = a.siteId * 3, s9 = a.siteId * 9;
-    const sm = d.site_xmat, sp = d.site_xpos, r = a.relp;
-    d.qpos[a.qadr]     = sp[s3]     + sm[s9] * r[0]     + sm[s9 + 1] * r[1] + sm[s9 + 2] * r[2];
-    d.qpos[a.qadr + 1] = sp[s3 + 1] + sm[s9 + 3] * r[0] + sm[s9 + 4] * r[1] + sm[s9 + 5] * r[2];
-    d.qpos[a.qadr + 2] = sp[s3 + 2] + sm[s9 + 6] * r[0] + sm[s9 + 7] * r[1] + sm[s9 + 8] * r[2];
-    const q = quatMul(mat3ToQuat(sm, s9), a.relq);
-    d.qpos[a.qadr + 3] = q[0]; d.qpos[a.qadr + 4] = q[1]; d.qpos[a.qadr + 5] = q[2]; d.qpos[a.qadr + 6] = q[3];
-    for (let k = 0; k < 6; k++) d.qvel[a.dofadr + k] = 0;
+    if (!this.loaded || !this.attachments.length) return;
+    const d = this.data;
+    for (const a of this.attachments) {
+      const s3 = a.siteId * 3, s9 = a.siteId * 9, sm = d.site_xmat, sp = d.site_xpos, r = a.relp;
+      d.qpos[a.qadr]     = sp[s3]     + sm[s9] * r[0]     + sm[s9 + 1] * r[1] + sm[s9 + 2] * r[2];
+      d.qpos[a.qadr + 1] = sp[s3 + 1] + sm[s9 + 3] * r[0] + sm[s9 + 4] * r[1] + sm[s9 + 5] * r[2];
+      d.qpos[a.qadr + 2] = sp[s3 + 2] + sm[s9 + 6] * r[0] + sm[s9 + 7] * r[1] + sm[s9 + 8] * r[2];
+      const q = quatMul(mat3ToQuat(sm, s9), a.relq);
+      d.qpos[a.qadr + 3] = q[0]; d.qpos[a.qadr + 4] = q[1]; d.qpos[a.qadr + 5] = q[2]; d.qpos[a.qadr + 6] = q[3];
+      for (let k = 0; k < 6; k++) d.qvel[a.dofadr + k] = 0;
+    }
   }
 
   update(dtWall) {

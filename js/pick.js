@@ -14,7 +14,7 @@
  *  - Sequencer: hover → absenken → greifen → heben → Pad → ablegen.
  * ============================================================ */
 
-import { HORST600_HOME } from './scenes.js';
+import { HORST600_HOME, SCAN_CONFIG } from './scenes.js';
 
 /* Zielorte der Anwendungen (siehe scenes.js). */
 const KASTEN = { rot: [0.16, 0.36], blau: [0.16, -0.36] };
@@ -33,7 +33,14 @@ const SCAN = {
   zone: { yMin: 0.13, yMax: 0.38, xMin: 0.05, xMax: 0.55, zMax: 0.48 },
   spawn: { x: 0.30, y: 0.95, z: 0.80, tilt: 0.42 },
   takt: 2.2,                                       // s zwischen zwei Nachschub-Paketen
-  box: [1.30, -0.34], boxMax: 8,                   // Zielbox: voll = Programmende
+  box: [1.42, -0.34], boxMax: 8,                   // Zielbox geradeaus: voll = Programmende
+  weicheX: 0.70,                                   // hier verzweigt das Band
+  bahnHalb: 0.09,                                  // halbe Breite der Abzweigbahnen
+  linksEnde: 0.44,                                 // y, ab dem der Rundlauf greift
+  rechtsBox: [0.70, -1.06],                        // Sammelbox der rechten Bahn
+  /* Routenwahl nach Größenklasse: kleine Pakete drehen die Runde,
+     mittlere gehen geradeaus in die Zielbox, große nach rechts. */
+  route: { XS: 'links', S: 'links', M: 'gerade', L: 'rechts' },
 };
 
 const HOVER_Z = 0.560;      // sichere Anfahrhöhe (Welt)
@@ -71,16 +78,19 @@ export class PickController {
   }
 
   /** Nach jedem Modell-Load aufrufen. */
-  configure() {
+  configure(wunschPrefix = null) {
     this.stop(true);
     this.ok = false;
     const e = this.e;
     if (!e.loaded) return;
     const mj = e.mujoco, md = e.model;
-    let prefix = null;
-    for (let i = 1; i < md.nbody; i++) {
-      const n = e.bodyName(i) || '';
-      if (n.endsWith('horst_basis')) { prefix = n.slice(0, -'horst_basis'.length); break; }
+    let prefix = wunschPrefix;
+    if (prefix === null || prefix === undefined) {
+      prefix = null;
+      for (let i = 1; i < md.nbody; i++) {
+        const n = e.bodyName(i) || '';
+        if (n.endsWith('horst_basis')) { prefix = n.slice(0, -'horst_basis'.length); break; }
+      }
     }
     if (prefix === null) { this.status = 'kein Roboter'; return; }
     this.prefix = prefix;
@@ -155,13 +165,15 @@ export class PickController {
     ];
   }
 
-  solveIK(target, q0, tiltDeg = 0) {
+  /** sollFest: Werkzeugachse fest vorgeben (z. B. [-1,0,0] = waagerecht in −X).
+   *  Ohne Angabe wird sie aus tiltDeg radial zur Basis abgeleitet. */
+  solveIK(target, q0, tiltDeg = 0, sollFest = null) {
     // tiltDeg > 0: Werkzeug radial vom Fuß weg neigen – der Roboter
     // "streckt sich" und erreicht ~6–8 cm weiter entfernte Ziele.
     const b3s = this.baseId * 3, xps = this.e.data.xpos;
     const phi = Math.atan2(target[1] - xps[b3s + 1], target[0] - xps[b3s]);
     const t = tiltDeg * Math.PI / 180;
-    const soll = [Math.sin(t) * Math.cos(phi), Math.sin(t) * Math.sin(phi), -Math.cos(t)];
+    const soll = sollFest ?? [Math.sin(t) * Math.cos(phi), Math.sin(t) * Math.sin(phi), -Math.cos(t)];
     // Stufe 1: Werkzeug senkrecht. Stufe 2 (Fallback): Neigung zulassen,
     // damit auch weit außen liegende Teile erreichbar bleiben (Vakuum hält schräg).
     return this._solve(target, q0, 0.35, true, soll) ?? this._solve(target, q0, 0.10, false, soll);
@@ -321,16 +333,27 @@ export class PickController {
    *  die Zwischenschritte dämpfen die Bandgeschwindigkeit weg (gemessen 2,8 statt 11 cm/s). */
   _bandAntrieb() {
     const d = this.e.data;
-    for (const dofadr of this._bandDofs) { d.qvel[dofadr] = SCAN.bandV; d.qvel[dofadr + 1] = 0; }
+    for (const [dofadr, vx, vy] of this._bandDofs) { d.qvel[dofadr] = vx; d.qvel[dofadr + 1] = vy; }
   }
 
   /** Förderband und Nachschub laufen unabhängig vom Programmablauf. */
+  /** Größenklasse aus dem Körpernamen (paket_M_3 → M). */
+  _klasse(bodyId) {
+    const t = (this.e.bodyName(bodyId) || '').split('_');
+    return t.length > 2 ? t[1] : 'M';
+  }
+
+  _route(bodyId) {
+    if (!SCAN_CONFIG.rundlauf && SCAN.route[this._klasse(bodyId)] === 'links') return 'gerade';
+    return SCAN.route[this._klasse(bodyId)] ?? 'gerade';
+  }
+
   _bandLauf(dt) {
     const e = this.e;
     if (!e.loaded) return;
     this._bandDofs.length = 0;
     const md = e.model, d = e.data;
-    const gehalten = e.attachInfo ? e.attachInfo.qadr : -1;
+    const gehalten = e.attachments.length ? e.attachments[0].qadr : -1;
     this._nachschub -= dt;
     let recycelt = false;
     for (const b of this._pakete()) {
@@ -338,12 +361,31 @@ export class PickController {
       const qadr = md.jnt_qposadr[j], dofadr = md.jnt_dofadr[j];
       if (qadr === gehalten) continue;
       const x = d.xpos[b * 3], y = d.xpos[b * 3 + 1], z = d.xpos[b * 3 + 2];
-      const aufBand = Math.abs(y - SCAN.bandY) < SCAN.bandHalbY && z > 0.40 && z < 0.56
+      const aufHoehe = z > 0.40 && z < 0.60;
+      const aufHauptband = aufHoehe && Math.abs(y - SCAN.bandY) < SCAN.bandHalbY
         && x > SCAN.bandX0 && x < SCAN.bandX1;
-      if (aufBand) this._bandDofs.push(dofadr);
+      const inBahn = aufHoehe && Math.abs(x - SCAN.weicheX) < SCAN.bahnHalb;
+      const route = this._route(b);
+
+      if (aufHauptband && (x < SCAN.weicheX - 0.02 || route === 'gerade')) {
+        this._bandDofs.push([dofadr, SCAN.bandV, 0]);            // geradeaus (+X)
+      } else if (inBahn && route === 'links' && y > SCAN.bandY - 0.02) {
+        this._bandDofs.push([dofadr, 0, SCAN.bandV]);            // Abzweig links (+Y)
+      } else if (inBahn && route === 'rechts' && y < SCAN.bandY + 0.02) {
+        this._bandDofs.push([dofadr, 0, -SCAN.bandV]);           // Abzweig rechts (−Y)
+      }
+
+      // Rundlauf: was die linke Bahn durchlaufen hat, startet oben auf der Rampe neu.
+      if (route === 'links' && y > SCAN.linksEnde && aufHoehe && !recycelt) {
+        this._neuAufRampe(qadr, dofadr);
+        this.rundCount = (this.rundCount ?? 0) + 1;
+        recycelt = true;
+        continue;
+      }
       // Sicherheitsnetz: was neben die Zelle fällt, kommt oben auf der Rampe zurück.
-      const daneben = z < 0.12 && !(Math.abs(x - SCAN.box[0]) < 0.19 && Math.abs(y - SCAN.box[1]) < 0.17);
-      if (daneben && !recycelt && this._nachschub <= 0) {
+      const inKiste = (Math.abs(x - SCAN.box[0]) < 0.19 && Math.abs(y - SCAN.box[1]) < 0.17)
+        || (Math.abs(x - SCAN.rechtsBox[0]) < 0.17 && Math.abs(y - SCAN.rechtsBox[1]) < 0.16);
+      if (z < 0.12 && !inKiste && !recycelt && this._nachschub <= 0) {
         this._neuAufRampe(qadr, dofadr);
         this._nachschub = SCAN.takt;
         recycelt = true;
@@ -625,8 +667,9 @@ export class PickController {
     let n = 0;
     for (const b of this._pakete()) {
       const p = b * 3;
-      if (Math.abs(d.xpos[p] - SCAN.box[0]) < 0.17 && Math.abs(d.xpos[p + 1] - SCAN.box[1]) < 0.15
-          && d.xpos[p + 2] < 0.36) n++;
+      const inZiel = Math.abs(d.xpos[p] - SCAN.box[0]) < 0.17 && Math.abs(d.xpos[p + 1] - SCAN.box[1]) < 0.15;
+      const inRechts = Math.abs(d.xpos[p] - SCAN.rechtsBox[0]) < 0.15 && Math.abs(d.xpos[p + 1] - SCAN.rechtsBox[1]) < 0.14;
+      if ((inZiel || inRechts) && d.xpos[p + 2] < 0.36) n++;
     }
     return n;
   }
@@ -644,6 +687,23 @@ export class PickController {
     this._seq = [];
     this.phase = 'run';
     if (this.e.paused) this.e.paused = false;
+  }
+
+  /** Laufendes Programm beschreiben – für die Wiederaufnahme nach einem
+   *  Modellwechsel (z. B. wenn währenddessen Teile abgeworfen werden). */
+  laufendesProgramm() {
+    if (this.phase === 'idle' || !this.mode) return null;
+    return { mode: this.mode, farbe: this.farbe, zaehler: this.zaehler };
+  }
+
+  nimmWiederAuf(z) {
+    if (!z || !this.ok) return false;
+    if (z.mode === 'kugeln') this.startKugeln(z.farbe);
+    else if (z.mode === 'palette') this.startPalettieren(z.farbe);
+    else if (z.mode === 'scan') this.startScan();
+    else return false;
+    this.zaehler = z.zaehler ?? 0;
+    return true;
   }
 
   _abschluss(text) {
