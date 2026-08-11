@@ -686,11 +686,161 @@ export function sceneHalle() {
   return h.open + world + '\n' + h.close(akt, armA.sensors + armB.sensors, key);
 }
 
+/* ---------------- Großer Rundlauf (Scanmutti XL) ----------------
+ * Hauptstrecke vom Roboter nach Osten, dort ein Dreiwege-Modul:
+ * zwei Abzweige kippen in je eine Kiste, die Geradeausstrecke läuft
+ * im Kreis und steigt am Ende bergauf zurück auf die Rampe.
+ * Der Pfad ist zugleich Geometrie (Szene) und Fahrbahn (Antrieb).
+ */
+export const RUNDLAUF = {
+  z: 0.42,                                  // Bandhöhe der Ebene
+  bw: 0.15,                                 // halbe Bandbreite (L-Paket ist 0,083 halbbreit)
+  v: 0.32,                                  // Bandgeschwindigkeit [m/s]
+  weiche: [1.02, -0.42],                    // Mitte des Dreiwege-Moduls
+  haupt: [
+    [0.02, -0.42, 0.42],
+    [1.52, -0.42, 0.42],
+    [1.52, 1.06, 0.42],
+    [0.30, 1.06, 0.80],                     // Rückführung steigt zur Rampenhöhe
+    [0.30, 0.99, 0.79],                     // letztes Stück zeigt die Rampe hinunter
+  ],
+  zweigA: [[1.02, -0.42, 0.42], [1.02, -0.96, 0.40]],
+  zweigB: [[1.02, -0.42, 0.42], [1.02, 0.18, 0.40]],
+  kisteA: [1.02, -1.20, 0.0],
+  kisteB: [1.02, 0.44, 0.0],
+};
+
+export function sceneRundlauf() {
+  const h = sceneHeader({ floorSize: 4 });
+  const robot = horstBody({ pos: [0, 0, 0.37] });
+  const R = RUNDLAUF;
+  const T = 0.50, RL = 0.42, RY = 0.62, RZ = 0.56;
+  const cs = Math.cos(T), sn = Math.sin(T);
+  const zOnRamp = (y, halfH) => RZ + (y - RY) * (sn / cs) + (0.008 + halfH) / cs;
+  const qT = (extra = 0) => {
+    const a = T + extra;
+    return [+Math.cos(a / 2).toFixed(5), +Math.sin(a / 2).toFixed(5), 0, 0];
+  };
+
+  const GROESSE = {
+    XS: { s: [0.033, 0.025, 0.013], m: 0.14, et: [0.015, 0.010, 0.0020], anteil: 12 },
+    S:  { s: [0.050, 0.033, 0.020], m: 0.24, et: [0.022, 0.014, 0.0022], anteil: 23 },
+    M:  { s: [0.067, 0.050, 0.033], m: 0.42, et: [0.030, 0.020, 0.0024], anteil: 30 },
+    L:  { s: [0.083, 0.067, 0.050], m: 0.66, et: [0.038, 0.026, 0.0026], anteil: 35 },
+  };
+  const cfg = SCAN_CONFIG;
+  const aktiv = Object.keys(GROESSE).filter(k => cfg.klassen[k]);
+  const klassen = aktiv.length ? aktiv : ['S'];
+  const summe = klassen.reduce((a, k) => a + GROESSE[k].anteil, 0);
+  const topf = [];
+  klassen.forEach(k => { const n = Math.max(1, Math.round(cfg.anzahl * GROESSE[k].anteil / summe));
+                         for (let i = 0; i < n; i++) topf.push(k); });
+  const reihe = Array.from({ length: cfg.anzahl }, (_, i) => topf[(i * 3 + 1) % topf.length]);
+
+  /* --- Bandstücke aus dem Pfad erzeugen --- */
+  const strecke = (a, b, name) => {
+    const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
+    const len = Math.hypot(dx, dy, dz);
+    const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+    const gier = Math.atan2(dy, dx);
+    const nick = -Math.asin(dz / (len || 1));
+    return `
+    <body name="${name}" pos="${v(mid)}" euler="0 ${nick.toFixed(4)} ${gier.toFixed(4)}">
+      <geom type="box" size="${(len / 2 + R.bw).toFixed(3)} ${R.bw} 0.018" pos="0 0 -0.018"
+            rgba="0.16 0.19 0.21 1" friction="0.22 0.002 0.0001"/>
+      <geom type="box" size="${(len / 2 + R.bw).toFixed(3)} 0.010 0.030" pos="0 ${(R.bw - 0.01).toFixed(3)} 0.012"
+            rgba="0.35 0.62 0.63 0.5"/>
+      <geom type="box" size="${(len / 2 + R.bw).toFixed(3)} 0.010 0.030" pos="0 ${(-(R.bw - 0.01)).toFixed(3)} 0.012"
+            rgba="0.35 0.62 0.63 0.5"/>
+    </body>`;
+  };
+  const stuetze = (p, name) => `
+    <body name="${name}" pos="${p[0]} ${p[1]} 0">
+      <geom type="cylinder" size="0.022 ${((p[2] - 0.02) / 2).toFixed(3)}" pos="0 0 ${((p[2] - 0.02) / 2).toFixed(3)}"
+            rgba="0.12 0.14 0.15 1"/>
+    </body>`;
+
+  const bahnen = R.haupt.slice(0, -1).map((p, i) => strecke(p, R.haupt[i + 1], `bahn_${i + 1}`)).join('')
+    + strecke(R.zweigA[0], R.zweigA[1], 'zweig_a')
+    + strecke(R.zweigB[0], R.zweigB[1], 'zweig_b')
+    + R.haupt.map((p, i) => stuetze(p, `stuetze_${i + 1}`)).join('')
+    + stuetze(R.zweigA[1], 'stuetze_a') + stuetze(R.zweigB[1], 'stuetze_b');
+
+  /* Dreiwege-Modul als sichtbarer Block */
+  const weiche = `
+    <body name="weiche" pos="${R.weiche[0]} ${R.weiche[1]} ${R.z - 0.019}">
+      <geom type="box" size="${R.bw} ${R.bw} 0.020" rgba="0.85 0.55 0.16 0.9"/>
+      <geom type="cylinder" size="0.028 0.026" pos="0 0 0.040" rgba="0.20 0.55 0.57 1"/>
+    </body>`;
+
+  const kiste = (name, p) => `
+    <body name="${name}" pos="${p[0]} ${p[1]} 0.0">
+      <geom type="box" size="0.19 0.15 0.008" pos="0 0 0.008" rgba="0.30 0.36 0.38 1"/>
+      <geom type="box" size="0.19 0.010 0.16" pos="0 0.145 0.16" rgba="0.42 0.70 0.70 0.35"/>
+      <geom type="box" size="0.19 0.010 0.16" pos="0 -0.145 0.16" rgba="0.42 0.70 0.70 0.35"/>
+      <geom type="box" size="0.010 0.15 0.16" pos="0.18 0 0.16" rgba="0.42 0.70 0.70 0.35"/>
+      <geom type="box" size="0.010 0.15 0.16" pos="-0.18 0 0.16" rgba="0.42 0.70 0.70 0.35"/>
+    </body>`;
+
+  /* Rampe wie bei Scanmutti, aber breiter für die großen Pakete */
+  const rampe = `
+    <body name="rampe" pos="0.30 ${RY} ${RZ}" quat="${qT().join(' ')}">
+      <geom type="box" size="0.20 ${RL} 0.008" rgba="0.24 0.29 0.31 1" friction="0.12 0.002 0.0001"/>
+      <geom type="box" size="0.010 ${RL} 0.045" pos="0.195 0 0.05" rgba="0.35 0.62 0.63 0.5"/>
+      <geom type="box" size="0.010 ${RL} 0.045" pos="-0.195 0 0.05" rgba="0.35 0.62 0.63 0.5"/>
+    </body>
+    <body name="rampenfuss" pos="0.30 ${(RY + RL * cs).toFixed(3)} 0">
+      <geom type="cylinder" size="0.024 ${((RZ + RL * sn) / 2).toFixed(3)}" pos="0 0 ${((RZ + RL * sn) / 2).toFixed(3)}" rgba="0.12 0.14 0.15 1"/>
+    </body>
+    <body name="anschlag" pos="0.30 0.185 0.386">
+      <geom type="box" size="0.20 0.012 0.030" rgba="0.85 0.55 0.16 0.85"/>
+    </body>`;
+
+  const tisch = `
+    <body name="tisch" pos="0.16 0.02 0.0">
+      <geom type="box" size="0.52 0.46 0.012" pos="0 0 0.358" rgba="0.62 0.70 0.72 1" friction="0.7 0.004 0.0002"/>
+      ${[[-0.48, -0.42], [0.48, -0.42], [-0.48, 0.42], [0.48, 0.42]].map(([x, y]) => `
+      <geom type="cylinder" size="0.020 0.179" pos="${x} ${y} 0.179" rgba="0.20 0.24 0.26 1"/>`).join('')}
+    </body>`;
+
+  /* Auf die Rampe passen nur rund fünf Pakete (sie reicht von y ≈ 0,25 bis 0,99).
+     Der Rest startet gleich auf der Hauptstrecke – sonst schweben sie hinter
+     dem Rampenende in der Luft und fallen sofort zu Boden. */
+  const AUF_RAMPE = 5;
+  const pakete = reihe.map((g, i) => {
+    const G = GROESSE[g];
+    const kopfueber = i % 3 !== 0;
+    if (i < AUF_RAMPE) {
+      const y = 0.32 + i * 0.135;
+      return { name: `paket_${g}_${i + 1}`, G,
+               pos: [0.30 + (i % 2 ? 0.05 : -0.05), y, zOnRamp(y, G.s[2])],
+               quat: qT(kopfueber ? Math.PI : 0) };
+    }
+    const k = i - AUF_RAMPE;
+    return { name: `paket_${g}_${i + 1}`, G,
+             pos: [0.16 + k * 0.30, R.haupt[0][1], R.z + G.s[2] + 0.006],
+             quat: kopfueber ? [0, 1, 0, 0] : [1, 0, 0, 0] };
+  });
+  const paketXml = pakete.map(p => `
+    <body name="${p.name}" pos="${v(p.pos)}" quat="${p.quat.join(' ')}">
+      <freejoint/>
+      <geom type="box" size="${p.G.s.join(' ')}" rgba="0.72 0.55 0.34 1" mass="${p.G.m}" friction="0.22 0.002 0.0001"/>
+      <geom type="box" size="${p.G.et[0]} ${p.G.et[1]} ${p.G.et[2]}" pos="0 0 ${(p.G.s[2] + 0.0018).toFixed(4)}"
+            rgba="0.97 0.97 0.94 1" mass="0.001"/>
+    </body>`).join('');
+
+  const world = tisch + rampe + bahnen + weiche
+    + kiste('kiste_a', R.kisteA) + kiste('kiste_b', R.kisteB) + robot.body + paketXml;
+  const key = buildKeyframe([{}], pakete);
+  return h.open + world + '\n' + h.close(robot.actuators, robot.sensors, key);
+}
+
 export const SCENES = [
   { id: 'horst_cell', name: 'HORST600 – Arbeitszelle', make: sceneHorstCell },
   { id: 'kugelsort', name: 'Part Separation – Kugeln sortieren', make: sceneKugelSort },
   { id: 'palettieren', name: 'Pick & Place – Palettieren', make: scenePalettieren },
   { id: 'scanmutti', name: 'Scanmutti – Paketzuführung', make: sceneScanmutti },
+  { id: 'rundlauf', name: 'Rundlauf XL – Dreiwege-Sorter', make: sceneRundlauf },
   { id: 'horst_solo', name: 'HORST600 – Solo', make: sceneHorstSolo },
   { id: 'pendulum',  name: 'Beispiel: Pendelkette', make: scenePendulum },
   { id: 'stack',     name: 'Beispiel: Kistenstapel', make: sceneStack },

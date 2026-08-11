@@ -248,7 +248,7 @@ function buildStaticPanels() {
 /** Process Control zeigt nur die Anwendung, die zur geladenen Szene gehört. */
 function zeigeAnwendungen() {
   const karten = $$('#paneProcess .appcard');
-  const passend = karten.filter(k => k.dataset.szene === aktiveSzene);
+  const passend = karten.filter(k => (k.dataset.szene || '').split(' ').includes(aktiveSzene));
   karten.forEach(k => k.classList.toggle('aus', passend.length > 0 && !passend.includes(k)));
   $('#appHinweis').classList.toggle('an', passend.length === 0);
 }

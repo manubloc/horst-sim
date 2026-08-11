@@ -14,7 +14,8 @@
  *  - Sequencer: hover → absenken → greifen → heben → Pad → ablegen.
  * ============================================================ */
 
-import { HORST600_HOME, SCAN_CONFIG } from './scenes.js';
+import { HORST600_HOME, SCAN_CONFIG, RUNDLAUF } from './scenes.js';
+import { BahnAntrieb } from './bahn.js';
 
 /* Zielorte der Anwendungen (siehe scenes.js). */
 const KASTEN = { rot: [0.16, 0.36], blau: [0.16, -0.36] };
@@ -105,6 +106,10 @@ export class PickController {
       this.joints.push({ qadr: j.qadr, ctrl: a.i, lo: md.jnt_range[2 * j.i], hi: md.jnt_range[2 * j.i + 1] });
     }
     this.baseId = mj.mj_name2id(md, mj.mjtObj.mjOBJ_BODY.value, prefix + 'horst_basis');
+    // Große Rundlaufzelle erkennen: dort übernimmt der Pfadantrieb das Fördern.
+    const weicheId = this.e.mujoco.mj_name2id(
+      this.e.model, this.e.mujoco.mjtObj.mjOBJ_BODY.value, 'weiche');
+    this.bahn = weicheId >= 0 ? new BahnAntrieb(this.e, RUNDLAUF) : null;
     this.ok = true;
     this.status = 'bereit';
   }
@@ -351,6 +356,12 @@ export class PickController {
   _bandLauf(dt) {
     const e = this.e;
     if (!e.loaded) return;
+    if (this.bahn) {                                  // Rundlauf XL: pfadgeführter Antrieb
+      const gehaltenIds = new Set(e.attachments.map(a => a.bodyId));
+      this.bahn.plane(this._pakete(), gehaltenIds);
+      this.bahn.zaehleKisten(this._pakete());
+      return;
+    }
     this._bandDofs.length = 0;
     const md = e.model, d = e.data;
     const gehalten = e.attachments.length ? e.attachments[0].qadr : -1;
@@ -576,7 +587,8 @@ export class PickController {
     this._neu('scan');
     this.scanCount = 0; this.flipCount = 0;
     this.status = 'Paketzuführung läuft';
-    this.e.onPreStep = () => this._bandAntrieb();
+    this.bahn?.reset();
+    this.e.onPreStep = this.bahn ? () => this.bahn.antreibe() : () => this._bandAntrieb();
     this._planer = () => this._planScan();
     this._planer();
   }
@@ -605,7 +617,7 @@ export class PickController {
     this._add({ t: 'call', fn: () => {
       if (this._etikettOben(b) || versuch >= 6) {
         this.status = this._etikettOben(b) ? 'Etikett oben ✓ – aufs Band' : 'Wendung erschöpft – trotzdem aufs Band';
-        this._add(this._ablegen(() => this._bandPunkt(), SCAN.bandZ, () => 'lege aufs Förderband'),
+        this._add(this._ablegen(() => this._bandPunkt(), this.bahn ? RUNDLAUF.z + 0.085 : SCAN.bandZ, () => 'lege aufs Förderband'),
                   { t: 'call', fn: () => { this.scanCount++; this._planer(); } });
       } else {
         this.flipCount++;
@@ -656,6 +668,7 @@ export class PickController {
 
   _bandPunkt() {
     const n = this.scanCount % 3;
+    if (this.bahn) return [0.24 + n * 0.075, RUNDLAUF.haupt[0][1]];   // XL-Zelle: weiter außen
     return [SCAN.bandZiel[0] + n * 0.055 - 0.055, SCAN.bandZiel[1]];
   }
 
