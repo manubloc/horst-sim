@@ -358,8 +358,8 @@ export function sceneScanmutti() {
   const h = sceneHeader({ floorSize: 4 });
   const robot = horstBody({ pos: [0, 0, 0.37] });
   const T = 0.50;                                   // Rampenneigung [rad] ≈ 29°
-  const RL = 0.42;                                  // halbe Rampenlänge
-  const RY = 0.62, RZ = 0.56;                       // Rampenmitte
+  const RL = 0.52;                                  // halbe Rampenlänge (größer: mehr Pakete)
+  const RY = 0.70, RZ = 0.60;                       // Rampenmitte
   const cs = Math.cos(T), sn = Math.sin(T);
   /* Höhe der Rampenoberfläche an einer Weltkoordinate y (plus halbe Pakethöhe). */
   const zOnRamp = (y, halfH) => RZ + (y - RY) * (sn / cs) + (0.008 + halfH) / cs;
@@ -417,9 +417,9 @@ export function sceneScanmutti() {
 
     <!-- Zuführrampe (+Y), 0,84 m lang, mit Seitenführungen -->
     <body name="rampe" pos="0.30 ${RY} ${RZ}" euler="${T} 0 0">
-      <geom type="box" size="0.17 ${RL} 0.008" rgba="0.26 0.29 0.31 1" friction="0.16 0.001 0.00005"/>
-      <geom type="box" size="0.008 ${RL} 0.030" pos="0.178 0 0.030"  rgba="0.05 0.35 0.36 1"/>
-      <geom type="box" size="0.008 ${RL} 0.030" pos="-0.178 0 0.030" rgba="0.05 0.35 0.36 1"/>
+      <geom type="box" size="0.26 ${RL} 0.008" rgba="0.26 0.29 0.31 1" friction="0.16 0.001 0.00005"/>
+      <geom type="box" size="0.010 ${RL} 0.055" pos="0.268 0 0.055"  rgba="0.05 0.35 0.36 1"/>
+      <geom type="box" size="0.010 ${RL} 0.055" pos="-0.268 0 0.055" rgba="0.05 0.35 0.36 1"/>
     </body>
     <body name="rampengestell" pos="0.30 0 0">
       <geom type="box" size="0.015 0.015 0.20" pos="0.17 0.30 0.20"  rgba="0.12 0.13 0.14 1"/>
@@ -435,12 +435,6 @@ export function sceneScanmutti() {
 
     <!-- Wendestation: flacher Absetztisch. Der Roboter stellt das Handgelenk
          auf 90° an und setzt das Paket damit gezielt auf eine Seitenfläche. -->
-    <body name="wendetisch" pos="0.42 -0.10 0.370">
-      <geom type="box" size="0.075 0.085 0.008" pos="0 0 0.008" rgba="0.05 0.35 0.36 0.9" friction="0.75 0.005 0.0002"/>
-      <geom type="box" size="0.006 0.085 0.030" pos="0.081 0 0.038" rgba="0.35 1 0.98 0.45"/>
-      <geom type="box" size="0.075 0.006 0.030" pos="0 0.091 0.038"  rgba="0.35 1 0.98 0.30"/>
-      <geom type="box" size="0.075 0.006 0.030" pos="0 -0.091 0.038" rgba="0.35 1 0.98 0.30"/>
-    </body>
 
     <!-- Hauptband (+X) mit Weiche bei x = 0,70. Am Weichenfeld fehlen die
          Seitenwände, damit Pakete nach links und rechts ausgeschleust werden. -->
@@ -697,12 +691,14 @@ export const RUNDLAUF = {
   bw: 0.15,                                 // halbe Bandbreite (L-Paket ist 0,083 halbbreit)
   v: 0.32,                                  // Bandgeschwindigkeit [m/s]
   weiche: [1.02, -0.42],                    // Mitte des Dreiwege-Moduls
+  /* Der Kreis endet vor dem Roboter: Dort fallen die Pakete auf den Tisch und
+     werden neu aufgenommen. Eine Rampe braucht es dafür nicht mehr. */
   haupt: [
     [0.02, -0.42, 0.42],
     [1.52, -0.42, 0.42],
     [1.52, 1.06, 0.42],
-    [0.30, 1.06, 0.80],                     // Rückführung steigt zur Rampenhöhe
-    [0.30, 0.99, 0.79],                     // letztes Stück zeigt die Rampe hinunter
+    [0.30, 1.06, 0.42],
+    [0.30, 0.44, 0.42],                     // Abwurf vor dem Roboter
   ],
   zweigA: [[1.02, -0.42, 0.42], [1.02, -0.96, 0.40]],
   zweigB: [[1.02, -0.42, 0.42], [1.02, 0.18, 0.40]],
@@ -782,20 +778,6 @@ export function sceneRundlauf() {
       <geom type="box" size="0.010 0.15 0.16" pos="-0.18 0 0.16" rgba="0.42 0.70 0.70 0.35"/>
     </body>`;
 
-  /* Rampe wie bei Scanmutti, aber breiter für die großen Pakete */
-  const rampe = `
-    <body name="rampe" pos="0.30 ${RY} ${RZ}" quat="${qT().join(' ')}">
-      <geom type="box" size="0.20 ${RL} 0.008" rgba="0.24 0.29 0.31 1" friction="0.12 0.002 0.0001"/>
-      <geom type="box" size="0.010 ${RL} 0.045" pos="0.195 0 0.05" rgba="0.35 0.62 0.63 0.5"/>
-      <geom type="box" size="0.010 ${RL} 0.045" pos="-0.195 0 0.05" rgba="0.35 0.62 0.63 0.5"/>
-    </body>
-    <body name="rampenfuss" pos="0.30 ${(RY + RL * cs).toFixed(3)} 0">
-      <geom type="cylinder" size="0.024 ${((RZ + RL * sn) / 2).toFixed(3)}" pos="0 0 ${((RZ + RL * sn) / 2).toFixed(3)}" rgba="0.12 0.14 0.15 1"/>
-    </body>
-    <body name="anschlag" pos="0.30 0.185 0.386">
-      <geom type="box" size="0.20 0.012 0.030" rgba="0.85 0.55 0.16 0.85"/>
-    </body>`;
-
   const tisch = `
     <body name="tisch" pos="0.16 0.02 0.0">
       <geom type="box" size="0.52 0.46 0.012" pos="0 0 0.358" rgba="0.62 0.70 0.72 1" friction="0.7 0.004 0.0002"/>
@@ -803,22 +785,28 @@ export function sceneRundlauf() {
       <geom type="cylinder" size="0.020 0.179" pos="${x} ${y} 0.179" rgba="0.20 0.24 0.26 1"/>`).join('')}
     </body>`;
 
-  /* Auf die Rampe passen nur rund fünf Pakete (sie reicht von y ≈ 0,25 bis 0,99).
-     Der Rest startet gleich auf der Hauptstrecke – sonst schweben sie hinter
-     dem Rampenende in der Luft und fallen sofort zu Boden. */
-  const AUF_RAMPE = 5;
+  /* Alle Pakete gleichmäßig über den Umlauf verteilen – der Kreis selbst
+     führt sie vor den Roboter zurück, eine Zuführrampe entfällt. */
+  const bogen = R.haupt.slice(0, -1).map((p, i) => Math.hypot(
+    R.haupt[i + 1][0] - p[0], R.haupt[i + 1][1] - p[1], R.haupt[i + 1][2] - p[2]));
+  const gesamt = bogen.reduce((a, b) => a + b, 0);
+  const punktBei = (u) => {
+    let rest = u % gesamt;
+    for (let i = 0; i < bogen.length; i++) {
+      if (rest <= bogen[i]) {
+        const a = R.haupt[i], b = R.haupt[i + 1], t = bogen[i] ? rest / bogen[i] : 0;
+        return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+      }
+      rest -= bogen[i];
+    }
+    return R.haupt[0];
+  };
   const pakete = reihe.map((g, i) => {
     const G = GROESSE[g];
     const kopfueber = i % 3 !== 0;
-    if (i < AUF_RAMPE) {
-      const y = 0.32 + i * 0.135;
-      return { name: `paket_${g}_${i + 1}`, G,
-               pos: [0.30 + (i % 2 ? 0.05 : -0.05), y, zOnRamp(y, G.s[2])],
-               quat: qT(kopfueber ? Math.PI : 0) };
-    }
-    const k = i - AUF_RAMPE;
+    const q = punktBei(0.35 + i * (gesamt * 0.88) / reihe.length);
     return { name: `paket_${g}_${i + 1}`, G,
-             pos: [0.16 + k * 0.30, R.haupt[0][1], R.z + G.s[2] + 0.006],
+             pos: [q[0], q[1], q[2] + G.s[2] + 0.010],
              quat: kopfueber ? [0, 1, 0, 0] : [1, 0, 0, 0] };
   });
   const paketXml = pakete.map(p => `
@@ -829,7 +817,7 @@ export function sceneRundlauf() {
             rgba="0.97 0.97 0.94 1" mass="0.001"/>
     </body>`).join('');
 
-  const world = tisch + rampe + bahnen + weiche
+  const world = tisch + bahnen + weiche
     + kiste('kiste_a', R.kisteA) + kiste('kiste_b', R.kisteB) + robot.body + paketXml;
   const key = buildKeyframe([{}], pakete);
   return h.open + world + '\n' + h.close(robot.actuators, robot.sensors, key);

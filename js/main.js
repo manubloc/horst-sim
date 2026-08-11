@@ -197,6 +197,7 @@ function buildStaticPanels() {
   for (const [id, k] of [['#klXS', 'XS'], ['#klS', 'S'], ['#klM', 'M'], ['#klL', 'L']]) {
     $(id).onchange = () => { SCAN_CONFIG.klassen[k] = $(id).checked; };
   }
+  $('#paketeNeuBtn').onclick = () => paketeNeu();
   $('#scanAnzahl').onchange = () => {
     SCAN_CONFIG.anzahl = Math.max(4, Math.min(16, Math.round(+$('#scanAnzahl').value || 10)));
     $('#scanAnzahl').value = String(SCAN_CONFIG.anzahl);
@@ -714,6 +715,26 @@ function clearLooseParts() {
   if (!loadXMLKeepState(xml, q)) return;
   selectBody(-1);
   toast(loose.length + ' Teile entfernt');
+}
+
+/** Alle Pakete verwerfen und nach der eingestellten Mischung neu einfüllen.
+ *  Die Szene wird dazu neu aufgebaut – sie liest die Klassenauswahl selbst,
+ *  also landen die neuen Pakete garantiert an den vorgesehenen Startplätzen
+ *  (Scanmutti: knapp über der Rampe, Rundlauf: verteilt auf dem Umlauf). */
+async function paketeNeu() {
+  const eintrag = SCENES.find(s => s.id === aktiveSzene);
+  if (!eintrag || !/scanmutti|rundlauf/.test(aktiveSzene ?? '')) {
+    toast('Nur in den Paketzellen (Scanmutti, Rundlauf) verfügbar.', true);
+    return;
+  }
+  const lief = pick?.laufendesProgramm?.() ?? null;
+  pick?.stop(true);
+  await loadScene(eintrag);
+  const n = SCAN_CONFIG.anzahl;
+  const kl = Object.entries(SCAN_CONFIG.klassen).filter(([, an]) => an).map(([k]) => k).join(', ');
+  toast(`${n} Pakete neu eingefüllt (${kl || 'S'})`);
+  if (lief) pick.nimmWiederAuf(lief);
+  if (engine.paused) engine.paused = false;
 }
 
 function spawnParts() {

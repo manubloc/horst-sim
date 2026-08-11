@@ -24,14 +24,14 @@ const KASTEN_ABWURF = 0.462;      // TCP fährt in die Kastenöffnung: Kugel wir
 const PALETTE = { rot: [0.16, 0.36], blau: [0.16, -0.36] };
 const PAL_Z0 = 0.382;             // Oberkante Palettendeck
 const WUERFEL_HW = 0.026;         // halbe Würfelkante
-const WENDE = [0.420, -0.10];          // Wendetisch
-const WENDE_Z0 = 0.386;                // Oberkante des Wendetischs
+const WENDE = [0.420, -0.10];          // freie Fläche auf dem Zellentisch
+const WENDE_Z0 = 0.372;                // Oberkante des Zellentischs
 /* Scanmutti: Kennzahlen der Paketzelle (siehe sceneScanmutti in scenes.js). */
 const SCAN = {
   bandZiel: [0.20, -0.34], bandZ: 0.470,           // Ablagepunkt auf dem Förderband
   bandY: -0.34, bandHalbY: 0.12, bandX0: -0.12, bandX1: 1.14,
   bandV: 0.16,                                     // Bandgeschwindigkeit [m/s]
-  zone: { yMin: 0.13, yMax: 0.38, xMin: 0.05, xMax: 0.55, zMax: 0.48 },
+  zone: { yMin: 0.13, yMax: 0.54, xMin: 0.02, xMax: 0.58, zMax: 0.48 },
   spawn: { x: 0.30, y: 0.95, z: 0.80, tilt: 0.42 },
   takt: 2.2,                                       // s zwischen zwei Nachschub-Paketen
   box: [1.42, -0.34], boxMax: 8,                   // Zielbox geradeaus: voll = Programmende
