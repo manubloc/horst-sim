@@ -17,6 +17,7 @@ let engine, renderer, wizard;
 let selectedBody = -1, tracking = false;
 let copiedName = null, pasteCount = 0;
 let pick = null;
+let kollDauer = 0, kollGemeldet = false;
 let aktiveSzene = null;
 let recorder = null, recChunks = [];
 let fps = 0, frames = 0, fpsT0 = performance.now();
@@ -436,10 +437,11 @@ function refreshJog() {
  * minimiert die Bedienoberfläche, damit man dem Roboter zusehen kann.
  */
 async function programmStart(szeneId, starter) {
-  const eintrag = SCENES.find(s => s.id === szeneId);
-  if (eintrag && aktiveSzene !== szeneId) {
-    await loadScene(eintrag);
-    $('#sceneSelect').value = String(SCENES.indexOf(eintrag));
+  // Ein Programm wechselt nie die Szene: sichtbar sind ohnehin nur die
+  // Programme, die zur geladenen Zelle gehören.
+  if (aktiveSzene !== szeneId && !(szeneId === 'scanmutti' && aktiveSzene === 'rundlauf')) {
+    toast('Dieses Programm gehört zu einer anderen Zelle.', true);
+    return;
   }
   if (!pick?.ok) { toast('Kein Roboter in der Szene.', true); return; }
   starter(pick);
@@ -593,7 +595,20 @@ function refreshStatus() {
   const E = d.energy;
   $('#stEnergy').textContent = `${E[0].toFixed(2)} | ${E[1].toFixed(2)} J`;
   refreshActuatorSliders();
-  if (pick) $('#pickStatus').textContent = pick.status;
+  if (pick) {
+    $('#pickStatus').textContent = pick.status;
+    const k = pick.kollision?.();
+    if (k) {
+      kollDauer = k.aktiv ? kollDauer + 1 : 0;
+      const zeigen = kollDauer >= 2;                // zwei Messungen in Folge, keine Fehlalarme
+      const chip = $('#kollChip');
+      chip.hidden = !zeigen;
+      if (zeigen) {
+        chip.textContent = `Kollision A${k.achse} · ${k.kraft.toFixed(0)} Nm`;
+        if (!kollGemeldet) { toast(`Achtung: Kollision an Achse ${k.achse} erkannt`, true); kollGemeldet = true; }
+      } else if (!k.aktiv) kollGemeldet = false;
+    }
+  }
   refreshJog();
   if (selectedBody > 0) {
     const p = selectedBody * 3, xp = d.xpos;

@@ -31,7 +31,7 @@ const SCAN = {
   bandZiel: [0.20, -0.34], bandZ: 0.470,           // Ablagepunkt auf dem Förderband
   bandY: -0.34, bandHalbY: 0.12, bandX0: -0.12, bandX1: 1.14,
   bandV: 0.16,                                     // Bandgeschwindigkeit [m/s]
-  zone: { yMin: 0.13, yMax: 0.54, xMin: 0.02, xMax: 0.58, zMax: 0.48 },
+  zone: { yMin: 0.12, yMax: 0.58, xMin: 0.00, xMax: 0.62, zMax: 0.52 },
   spawn: { x: 0.30, y: 0.95, z: 0.80, tilt: 0.42 },
   takt: 2.2,                                       // s zwischen zwei Nachschub-Paketen
   box: [1.42, -0.34], boxMax: 8,                   // Zielbox geradeaus: voll = Programmende
@@ -98,11 +98,13 @@ export class PickController {
     this.siteId = mj.mj_name2id(md, mj.mjtObj.mjOBJ_SITE.value, prefix + 'tcp');
     if (this.siteId < 0) { this.status = 'kein TCP'; return; }
     this.joints = [];
+    this.jointIdx = [];
     const jmap = new Map(e.listJoints().map(j => [j.name, j]));
     const amap = new Map(e.listActuators().map(a => [a.name, a]));
     for (let n = 1; n <= 6; n++) {
       const j = jmap.get(`${prefix}j${n}`), a = amap.get(`${prefix}A${n}`);
       if (!j || !a) { this.status = 'Achsen unvollständig'; return; }
+      this.jointIdx.push(j.i);
       this.joints.push({ qadr: j.qadr, ctrl: a.i, lo: md.jnt_range[2 * j.i], hi: md.jnt_range[2 * j.i + 1] });
     }
     this.baseId = mj.mj_name2id(md, mj.mjtObj.mjOBJ_BODY.value, prefix + 'horst_basis');
@@ -115,6 +117,22 @@ export class PickController {
   }
 
   q() { return this.joints.map(j => this.e.data.qpos[j.qadr]); }
+
+  /** Kollisionswächter ohne Speicherleck: die Kontaktliste der Bindung legt bei
+   *  jedem Zugriff ein Objekt an, das sie nicht freigibt. Die Zwangskräfte in
+   *  den Achsen sind dagegen ein reines Zahlenfeld – gemessen liegen sie im
+   *  Normalbetrieb unter 4 Nm, beim Anfahren gegen den Tisch bei über 90 Nm. */
+  kollision() {
+    if (!this.ok || !this.e.loaded) return null;
+    const md = this.e.model, d = this.e.data;
+    let max = 0, achse = 0;
+    for (let k = 0; k < this.joints.length; k++) {
+      const dofadr = md.jnt_dofadr[this.jointIdx[k]];
+      const f = Math.abs(d.qfrc_constraint[dofadr]);
+      if (f > max) { max = f; achse = k + 1; }
+    }
+    return { kraft: max, achse, aktiv: max > 12 };
+  }
 
   /** Sorte eines freien Objekts: rot / blau (Name), kugel (Geometrie), sonst rest. */
   _classify(bodyId) {

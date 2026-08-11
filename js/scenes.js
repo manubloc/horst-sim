@@ -696,14 +696,17 @@ export const RUNDLAUF = {
   haupt: [
     [0.02, -0.42, 0.42],
     [1.52, -0.42, 0.42],
-    [1.52, 1.06, 0.42],
-    [0.30, 1.06, 0.42],
-    [0.30, 0.44, 0.42],                     // Abwurf vor dem Roboter
+    [1.52, 1.10, 0.42],
+    [0.62, 1.10, 0.66],                     // Rückweg steigt an
+    [0.30, 0.72, 0.52],                     // Gefälle zur Übergabe
+    [0.30, 0.42, 0.47],                     // Abwurf vor dem Roboter
   ],
-  zweigA: [[1.02, -0.42, 0.42], [1.02, -0.96, 0.40]],
-  zweigB: [[1.02, -0.42, 0.42], [1.02, 0.18, 0.40]],
-  kisteA: [1.02, -1.20, 0.0],
-  kisteB: [1.02, 0.44, 0.0],
+  /* Beide Abzweige laufen als 45°-Schrägen nach vorn, damit die Kisten
+     nebeneinander an einer Stelle stehen und greifbar sind. */
+  zweigA: [[1.02, -0.42, 0.42], [0.66, -0.86, 0.40]],
+  zweigB: [[1.02, -0.42, 0.42], [1.38, -0.86, 0.40]],
+  kisteA: [0.56, -1.06, 0.0],
+  kisteB: [1.48, -1.06, 0.0],
 };
 
 export function sceneRundlauf() {
@@ -742,12 +745,12 @@ export function sceneRundlauf() {
     const nick = -Math.asin(dz / (len || 1));
     return `
     <body name="${name}" pos="${v(mid)}" euler="0 ${nick.toFixed(4)} ${gier.toFixed(4)}">
+      <!-- Keine Seitenwände: an Kurven und Kreuzungen standen sie quer im
+           Durchlauf. Die Pakete werden vom Bandantrieb auf der Spur gehalten. -->
       <geom type="box" size="${(len / 2 + R.bw).toFixed(3)} ${R.bw} 0.018" pos="0 0 -0.018"
             rgba="0.16 0.19 0.21 1" friction="0.22 0.002 0.0001"/>
-      <geom type="box" size="${(len / 2 + R.bw).toFixed(3)} 0.010 0.030" pos="0 ${(R.bw - 0.01).toFixed(3)} 0.012"
-            rgba="0.35 0.62 0.63 0.5"/>
-      <geom type="box" size="${(len / 2 + R.bw).toFixed(3)} 0.010 0.030" pos="0 ${(-(R.bw - 0.01)).toFixed(3)} 0.012"
-            rgba="0.35 0.62 0.63 0.5"/>
+      <geom type="box" size="${(len / 2 + R.bw).toFixed(3)} ${R.bw} 0.002" pos="0 0 -0.0005"
+            rgba="0.30 0.52 0.53 0.35" contype="0" conaffinity="0"/>
     </body>`;
   };
   const stuetze = (p, name) => `
@@ -817,7 +820,16 @@ export function sceneRundlauf() {
             rgba="0.97 0.97 0.94 1" mass="0.001"/>
     </body>`).join('');
 
-  const world = tisch + bahnen + weiche
+  /* Anschlag vor dem Roboter: ohne ihn schoben die abgeworfenen Pakete
+     durch den Aufnahmebereich hindurch bis an den Roboterfuß. */
+  const anschlag = `
+    <body name="anschlag" pos="0.30 0.13 0.372">
+      <geom type="box" size="0.30 0.012 0.045" pos="0 0 0.045" rgba="0.85 0.55 0.16 0.9"/>
+      <geom type="box" size="0.012 0.16 0.045" pos="0.29 0.16 0.045" rgba="0.85 0.55 0.16 0.6"/>
+      <geom type="box" size="0.012 0.16 0.045" pos="-0.29 0.16 0.045" rgba="0.85 0.55 0.16 0.6"/>
+    </body>`;
+
+  const world = tisch + anschlag + bahnen + weiche
     + kiste('kiste_a', R.kisteA) + kiste('kiste_b', R.kisteB) + robot.body + paketXml;
   const key = buildKeyframe([{}], pakete);
   return h.open + world + '\n' + h.close(robot.actuators, robot.sensors, key);

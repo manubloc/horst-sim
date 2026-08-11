@@ -47,7 +47,7 @@ function waechter(e) {
       }
     },
     bericht() {
-      if (!zaehler) return 'Wächter lief nie';
+      if (!gelesen && !fehler) return 'keine Kontakte im Abtastfenster';
       const t = [...treffer.entries()];
       return t.length
         ? `KOLLISION: ${t.map(([n, d]) => `${n} (${(d * 1000).toFixed(1)} mm)`).join(', ')}`
